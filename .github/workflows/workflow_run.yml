@@ -4,6 +4,7 @@ on:
     workflows:
       - Push
       - Pull Request
+      - Lint YAML
     types:
       - completed
 
