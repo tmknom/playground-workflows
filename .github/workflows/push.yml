@@ -5,6 +5,15 @@ on:
       - ".github/workflows/push.yml"
 
 jobs:
+  debug:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Debug step
+        run: |
+          set -x
+          echo debug
+
   context:
     runs-on: ubuntu-latest
     timeout-minutes: 5
