@@ -1,0 +1,10 @@
+name: Lint YAML
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/lint-yaml.yml"
+
+jobs:
+  lint-yaml:
+    uses: tmknom/workflows/.github/workflows/lint-yaml.yml@v1
