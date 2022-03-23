@@ -3,3 +3,9 @@ github:
 
 docs:
   - "**/*.md"
+
+chore:
+  - "Makefile"
+  - "VERSION"
+  - ".markdownlint.yml"
+  - ".yamllint.yml"
