@@ -1,6 +1,9 @@
-name: Check Run
+name: Workflow Run
 on:
   workflow_run:
+    workflows:
+      - Push
+      - Pull Request
 
 jobs:
   context:
