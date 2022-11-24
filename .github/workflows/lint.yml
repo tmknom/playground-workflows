@@ -1,0 +1,49 @@
+name: Lint
+on:
+  workflow_call:
+    inputs:
+      yamllint-config:
+        required: false
+        type: string
+        description: ".yamllint.yml path"
+  workflow_dispatch:
+    inputs:
+      yamllint-config:
+        required: false
+        type: string
+        description: ".yamllint.yml path"
+permissions:
+  contents: read
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Lint by yamllint
+        env:
+          CONFIG: ${{ inputs.yamllint-config }}
+        run: |
+          DEFAULT_CONFIG="${RUNNER_TEMP}/.yamllint.yml"
+          cat <<EOF >"${DEFAULT_CONFIG}"
+          extends: default
+          rules:
+            document-start: disable
+            truthy:
+              allowed-values: ["true", "false", "on"]
+            comments:
+              min-spaces-from-content: 1
+            braces:
+              max-spaces-inside: 1
+            line-length:
+              max: 150
+          EOF
+          yamllint --strict --format github \
+            --config-file "${CONFIG:-${DEFAULT_CONFIG}}" .
+
+      - name: Format check by prettier
+        run: |
+          npm install prettier@latest
+          npx prettier --parser="yaml" --check "**/*.y*ml"
