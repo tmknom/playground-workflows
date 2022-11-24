@@ -1,0 +1,15 @@
+# https://github.com/tmknom/shared-composite-actions
+.shared/
+
+# Tools for environment variables
+.envrc
+.env
+
+# Editors
+.idea/
+.vscode/
+
+# General
+.DS_Store
+tmp/
+*.log
