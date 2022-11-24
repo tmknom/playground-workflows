@@ -1,5 +1,17 @@
 # Changelog
 
+## v0.1.1
+
+### Bug Fixes 🐛
+
+- Add release settings by @tmknom in https://github.com/tmknom/github-actions-playground/pull/51
+
+### New Contributors
+
+- @github-actions made their first contribution in https://github.com/tmknom/github-actions-playground/pull/50
+
+**Full Changelog**: https://github.com/tmknom/github-actions-playground/compare/v0.1.0...v0.1.1
+
 ## v0.1.0
 
 - Check dependabot by @tmknom in https://github.com/tmknom/github-actions-playground/pull/3
