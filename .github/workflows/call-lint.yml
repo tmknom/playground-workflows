@@ -1,0 +1,8 @@
+name: Call Lint
+on:
+  workflow_dispatch:
+  pull_request:
+    paths: ["**.yml", "**.yaml"]
+jobs:
+  lint:
+    uses: tmknom/github-actions-playground/blob/main/.github/workflows/reusable-lint.yml@main
