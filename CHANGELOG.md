@@ -1,5 +1,14 @@
 # Changelog
 
+## v0.3.0
+
+### Exciting New Features 🎉
+
+- Add call-lint.yml by @tmknom in https://github.com/tmknom/github-actions-playground/pull/63
+- Add call-release.yml by @tmknom in https://github.com/tmknom/github-actions-playground/pull/66
+
+**Full Changelog**: https://github.com/tmknom/github-actions-playground/compare/v0.2.0...v0.3.0
+
 ## v0.2.0
 
 ### Exciting New Features 🎉
