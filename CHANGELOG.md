@@ -1,5 +1,18 @@
 # Changelog
 
+## v0.2.0
+
+### Exciting New Features 🎉
+
+- Add lint workflow by @tmknom in https://github.com/tmknom/github-actions-playground/pull/54
+- Add release.yml by @tmknom in https://github.com/tmknom/github-actions-playground/pull/61
+
+### Bug Fixes 🐛
+
+- Add .gitignore by @tmknom in https://github.com/tmknom/github-actions-playground/pull/53
+
+**Full Changelog**: https://github.com/tmknom/github-actions-playground/compare/v0.1.1...v0.2.0
+
 ## v0.1.1
 
 ### Bug Fixes 🐛
