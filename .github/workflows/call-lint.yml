@@ -5,4 +5,4 @@ on:
     paths: ["**.yml", "**.yaml"]
 jobs:
   lint:
-    uses: tmknom/github-actions-playground/blob/main/.github/workflows/reusable-lint.yml@main
+    uses: tmknom/github-actions-playground/.github/workflows/reusable-lint.yml@main
