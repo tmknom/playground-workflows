@@ -1,0 +1,34 @@
+name: Docs
+on:
+  pull_request:
+    paths: ["action.yml"]
+permissions:
+  contents: write
+jobs:
+  generate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      YAML_FILE: action.yml
+      MD_FILE: README.md
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Inject document
+        run: |
+          docker run --rm -v "$(pwd):/work" -w "/work" \
+          ghcr.io/tmknom/actdocs inject --sort \
+          --file "${MD_FILE}" "${YAML_FILE}"
+
+      - name: Push
+        run: |
+          if [[ "$(git status -s)" == "" ]]; then
+            echo 'skipped'
+            exit 0
+          fi
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "${MD_FILE}"
+          git commit -m "Update ${MD_FILE}"
+          git push
