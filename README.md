@@ -10,6 +10,17 @@ Run!
 
 変更したファイルをGitHubへプッシュし、プルリクエストを作成します。
 
+## Usage
+
+```yaml
+  steps:
+    - uses: example/create-pr-action@v1
+      with:
+        paths: "*.md"
+        branch: example-${{ github.run_id }}
+        commit-message: Auto commit by create-pr-action
+```
+
 ## Inputs
 
 | Name | Description | Default | Required |
