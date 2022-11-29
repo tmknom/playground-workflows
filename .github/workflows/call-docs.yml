@@ -6,7 +6,7 @@ permissions:
   contents: write
 jobs:
   docs:
-    uses: ./.github/workflows/reusable-docs.yml
+    uses: tmknom/github-actions-workflows/.github/workflows/docs.yml@v0
     with:
       yaml-file: action.yml
       markdown-file: README.md
