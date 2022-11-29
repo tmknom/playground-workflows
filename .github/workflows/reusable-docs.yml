@@ -1,6 +1,21 @@
-name: Docs
+name: Reusable Docs
 on:
-  workflow_dispatch:
+  workflow_call:
+    inputs:
+      yaml-file:
+        default: "action.yml"
+        required: false
+        type: string
+        description: "The YAML file for the action or the reusable workflow"
+      markdown-file:
+        default: "README.md"
+        required: false
+        type: string
+        description: "The Markdown file for the injection target"
+      ref:
+        required: true
+        type: string
+        description: "The git ref"
 permissions:
   contents: write
 jobs:
@@ -8,13 +23,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     env:
-      YAML_FILE: action.yml
-      MD_FILE: README.md
+      YAML_FILE: ${{ inputs.yaml-file }}
+      MD_FILE: ${{ inputs.markdown-file }}
     steps:
       - name: Checkout
         uses: actions/checkout@v3
         with:
-          ref: ${{ github.event.pull_request.head.ref }}
+          ref: ${{ inputs.ref }}
 
       - name: Inject document
         run: |
@@ -22,7 +37,7 @@ jobs:
           ghcr.io/tmknom/actdocs inject --sort \
           --file "${MD_FILE}" "${YAML_FILE}"
 
-      - name: Push
+      - name: Git push
         run: |
           if [[ "$(git status -s)" == "" ]]; then
             echo 'skipped'

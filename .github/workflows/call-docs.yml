@@ -1,0 +1,13 @@
+name: Call Docs
+on:
+  pull_request:
+    paths: ["action.yml"]
+permissions:
+  contents: write
+jobs:
+  docs:
+    uses: ./.github/workflows/reusable-docs.yml
+    with:
+      yaml-file: action.yml
+      markdown-file: README.md
+      ref: ${{ github.event.pull_request.head.ref }}
