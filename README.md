@@ -14,7 +14,7 @@ Run!
 
 ```yaml
   steps:
-    - uses: example/create-pr-action@v1
+    - uses: sample/create-pr-action@v1
       with:
         paths: "*.md"
         branch: example-${{ github.run_id }}
