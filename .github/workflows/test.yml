@@ -1,17 +1,24 @@
-name: Dependabot test
+name: Test action
 on:
-  workflow_dispatch:
-
+  pull_request:
+defaults:
+  run:
+    shell: bash
 jobs:
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - name: v2.3.1
-        uses: actions/checkout@v3
+      - uses: actions/checkout@v3
 
-      - name: Verified creater v1.5.0
-        uses: docker/setup-buildx-action@v2.0.0
+      - name: Bump version
+        id: bump
+        uses: ./
+        with:
+          version: "v1.2.3"
+          level: "patch"
 
       - name: Run
-        run: echo "dummy"
+        env:
+          NEXT_VERSION: ${{ steps.bump.outputs.next-version }}
+        run: echo "run=${NEXT_VERSION}"
