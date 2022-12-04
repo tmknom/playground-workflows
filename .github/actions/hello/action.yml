@@ -1,0 +1,16 @@
+name: Hello
+description: 元気に挨拶してくれる画期的すぎるアクションです
+inputs:
+  target:
+    description: あなたが挨拶したいのは誰ですか？
+outputs:
+  target:
+    value: ${{ inputs.target }}
+    description: 挨拶した相手
+runs:
+  using: composite
+  steps:
+    - run: echo "Hello, ${TARGET}!"
+      shell: bash
+      env:
+        TARGET: ${{ inputs.target }}
