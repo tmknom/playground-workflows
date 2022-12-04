@@ -22,7 +22,7 @@ runs:
   using: composite
   steps:
     - name: Checkout
-      uses: actions/checkout@7884fcad6b5d53d10323aee724dc68d8b9096a2e
+      uses: actions/checkout@01aecccf739ca6ff86c0539fbc67a7a5007bbc81
 
     - run: "${GITHUB_ACTION_PATH}/script.sh"
       env:
