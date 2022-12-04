@@ -1,10 +1,29 @@
 name: Use env
 description: test action
 
+inputs:
+  version:
+    required: true
+    description: "The version"
+  level:
+    default: "minor"
+    required: false
+    description: "Version up level：`major`, `minor`, `patch`"
+
+outputs:
+  current-version:
+    value: ${{ inputs.version }}
+    description: "Current version"
+  next-version:
+    value: ${{ steps.bump.outputs.next-version }}
+    description: "Next version"
+
 runs:
   using: composite
   steps:
-    - run: printenv
-      shell: bash
-    - run: echo "${TEST_ENV}"
+    - run: "${GITHUB_ACTION_PATH}/script.sh"
+      env:
+        CURRENT_VERSION: ${{ inputs.version }}
+        BUMP_LEVEL: ${{ inputs.level }}
+      id: bump
       shell: bash
