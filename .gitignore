@@ -1,5 +1,5 @@
-# https://github.com/tmknom/shared-composite-actions
-.shared/
+# https://github.com/tmknom/makefiles
+.makefiles/
 
 # Tools for environment variables
 .envrc
@@ -9,7 +9,9 @@
 .idea/
 .vscode/
 
-# General
+# macOS
 .DS_Store
+
+# General
 tmp/
 *.log
