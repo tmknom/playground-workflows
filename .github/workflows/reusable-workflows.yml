@@ -1,0 +1,48 @@
+name: Label
+on:
+  workflow_call:
+
+permissions: {}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
+
+      - name: Generate configuration
+        id: config
+        env:
+          DEFAULT_CONFIG_PATH: .github/labeler.yml
+        run: |
+          set -x
+          config_path="${DEFAULT_CONFIG_PATH}"
+          cat <<EOF >"${config_path}"
+          enhancement:
+            - head-branch: ['^feat']
+          bug:
+            - head-branch: ['^fix']
+          EOF
+          echo "path=${config_path}" >> "${GITHUB_OUTPUT}"
+
+      - name: Show configuration
+        env:
+          CONFIG_PATH: ${{ steps.config.outputs.path }}
+        run: |
+          set -x
+          cat "${CONFIG_PATH}"
+
+      - name: Labeler
+        uses: actions/labeler@8558fd74291d67161a8a78ce36a881fa63b766a9 # v5.0.0
+        with:
+          sync-labels: true
+          configuration-path: ${{ steps.config.outputs.path }}
