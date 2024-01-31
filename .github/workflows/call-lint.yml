@@ -1,5 +1,0 @@
-name: Call Lint
-on: workflow_dispatch
-jobs:
-  lint:
-    uses: tmknom/github-actions-workflows/.github/workflows/lint.yml@v0
