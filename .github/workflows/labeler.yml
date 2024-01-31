@@ -2,14 +2,14 @@ name: Label
 on:
   pull_request:
 
-permissions: {}
-
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions: {}
+
 jobs:
-  label:
+  call:
     uses: ./.github/workflows/reusable-workflows.yml
     permissions:
       contents: read
