@@ -19,7 +19,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@b4ffde65f46336ab88eb53be808477a3936bae11 # v4.1.1
 
-      - name: Generate configuration
+      # https://www.conventionalcommits.org/en/v1.0.0/
+      # https://github.com/commitizen/conventional-commit-types/blob/master/index.json
+      - name: Generate configuration based on Conventional Commits
         id: config
         env:
           DEFAULT_CONFIG_PATH: .github/labeler.yml
@@ -31,6 +33,26 @@ jobs:
             - head-branch: ['^feat']
           bug:
             - head-branch: ['^fix']
+          docs:
+            - head-branch: ["^docs"]
+            - changed-files:
+                - any-glob-to-any-file: ["**.md"]
+          style:
+            - head-branch: ["^style"]
+          refactor:
+            - head-branch: ["^refactor"]
+          perf:
+            - head-branch: ["^perf"]
+          test:
+            - head-branch: ["^test"]
+          build:
+            - head-branch: ["^build"]
+          ci:
+            - head-branch: ["^ci"]
+          chore:
+            - head-branch: ["^chore"]
+          revert:
+            - head-branch: ["^revert"]
           EOF
           echo "path=${config_path}" >> "${GITHUB_OUTPUT}"
 
