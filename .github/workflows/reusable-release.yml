@@ -123,6 +123,7 @@ jobs:
       - name: Push temporary branch
         id: temporary
         env:
+          VERSION: ${{ steps.bump.outputs.version }}
           IDENTIFIER: ${{ steps.unique.outputs.identifier }}
           CONFIG_PATH: ${{ steps.config.outputs.path }}
         run: |
@@ -138,6 +139,7 @@ jobs:
           git push origin "${branch}"
 
           temporary_tag_name="delete-me-${VERSION}"
+          git tag --force --message "${temporary_tag_name}" "${temporary_tag_name}"
           git push origin "${temporary_tag_name}"
 
           echo "branch=${branch}" >> "${GITHUB_OUTPUT}"
