@@ -159,7 +159,6 @@ jobs:
           release_note_path="${RUNNER_TEMP}/release-${IDENTIFIER}.md"
           gh api "/repos/${GITHUB_REPOSITORY}/releases/generate-notes" \
             -f target_commitish="${COMMIT_SHA}" \
-            -f tag_name="${VERSION}" \
             "${previous_tag_name_option[@]}" \
             --jq .body > "${release_note_path}"
           echo "path=${release_note_path}" >> "${GITHUB_OUTPUT}"
