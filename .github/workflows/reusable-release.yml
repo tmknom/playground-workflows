@@ -137,8 +137,12 @@ jobs:
           git commit -m "${title}" -m "${message}" -m "${log}"
           git push origin "${branch}"
 
+          temporary_tag_name="delete-me-${VERSION}"
+          git push origin "${temporary_tag_name}"
+
           echo "branch=${branch}" >> "${GITHUB_OUTPUT}"
           echo "commit-sha=$(git log -1 --pretty=%H)" >> "${GITHUB_OUTPUT}"
+          echo "temporary-tag=${temporary_tag_name}" >> "${GITHUB_OUTPUT}"
 
       - name: Generate release note
         id: note
@@ -146,12 +150,12 @@ jobs:
           VERSION: ${{ steps.bump.outputs.version }}
           PREVIOUS_VERSION: ${{ steps.bump.outputs.previous-version }}
           INITIAL_VERSION: ${{ steps.bump.outputs.initial-version }}
+          TEMPORARY_TAG: ${{ steps.temporary.outputs.temporary-tag }}
           COMMIT_SHA: ${{ steps.temporary.outputs.commit-sha }}
           IDENTIFIER: ${{ steps.unique.outputs.identifier }}
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -x
-          temporary_tag_name="delete-me-${VERSION}"
           previous_tag_name_option=()
           if [[ "${PREVIOUS_VERSION}" != "${INITIAL_VERSION}" ]]; then
             previous_tag_name_option=(-f previous_tag_name="${PREVIOUS_VERSION}")
@@ -159,12 +163,10 @@ jobs:
 
           release_note_path="${RUNNER_TEMP}/release-${IDENTIFIER}.md"
           gh api "/repos/${GITHUB_REPOSITORY}/releases/generate-notes" \
-            -f target_commitish="${COMMIT_SHA}" \
-            -f tag_name="${temporary_tag_name}" \
+            -f tag_name="${TEMPORARY_TAG}" \
             "${previous_tag_name_option[@]}" \
             --jq .body > "${release_note_path}"
           echo "path=${release_note_path}" >> "${GITHUB_OUTPUT}"
-          echo "temporary-tag=${temporary_tag_name}" >> "${GITHUB_OUTPUT}"
 
       - name: Show release note
         env:
@@ -190,10 +192,10 @@ jobs:
           set -x
           git push origin "${TEMPORARY_BRANCH}" --delete || true
 
-      - name: Delete temporary tag
-        if: ${{ always() && steps.note.outputs.temporary-tag != '' }}
-        env:
-          TEMPORARY_TAG: ${{ steps.note.outputs.temporary-tag }}
-        run: |
-          set -x
-          git push origin "${TEMPORARY_TAG}" --delete || true
+      # - name: Delete temporary tag
+      #   if: ${{ always() && steps.temporary.outputs.temporary-tag != '' }}
+      #   env:
+      #     TEMPORARY_TAG: ${{ steps.temporary.outputs.temporary-tag }}
+      #   run: |
+      #     set -x
+      #     git push origin "${TEMPORARY_TAG}" --delete || true
