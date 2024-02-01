@@ -94,9 +94,10 @@ jobs:
         id: config
         env:
           DEFAULT_CONFIG_PATH: .github/release.yml
+          IDENTIFIER: ${{ steps.unique.outputs.identifier }}
         run: |
           set -x
-          config_path="${DEFAULT_CONFIG_PATH}"
+          config_path="${IDENTIFIER}.yml"
           cat <<EOF >"${config_path}"
           changelog:
             categories:
@@ -111,6 +112,13 @@ jobs:
                   - dependencies
           EOF
           echo "path=${config_path}" >> "${GITHUB_OUTPUT}"
+
+      - name: Show configuration
+        env:
+          CONFIG_PATH: ${{ steps.config.outputs.path }}
+        run: |
+          set -x
+          cat "${CONFIG_PATH}"
 
       - name: Push temporary branch
         id: temporary
