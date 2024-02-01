@@ -1,0 +1,25 @@
+name: Internal Release
+on:
+  workflow_dispatch:
+    inputs:
+      level:
+        type: choice
+        required: true
+        description: Bump up to [patch / minor / major]
+        options:
+          - patch
+          - minor
+          - major
+        default: minor
+
+concurrency: ${{ github.workflow }}
+
+permissions: {}
+
+jobs:
+  call:
+    uses: tmknom/release-workflows/.github/workflows/reusable-workflows.yml@v0
+    with:
+      level: ${{ inputs.level }}
+    permissions:
+      contents: write
