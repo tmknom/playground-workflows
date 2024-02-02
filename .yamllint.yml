@@ -1,0 +1,44 @@
+# yamllintのLintポリシーの設定
+#
+# 各設定値の詳細は下記から参照できます
+# https://yamllint.readthedocs.io/en/stable/rules.html
+extends: default
+
+rules:
+  # GitHub Actionsの文法ではYAMLファイルを
+  # ドキュメントスタートマーカー「`---`」ではじめることはできません
+  #
+  # そのためdocument-startのチェックがあると、絶対にyamllintがエラーになります
+  # document-startのデフォルト設定はenableなので、明示的に無効化します
+  document-start: disable
+
+  # まず大前提としてGitHub Actionsの文法では
+  # `on`キーはイベントのトリガー設定に使用される重要なキーです
+  #
+  # 実はYAMLの文法では、Booleanとして扱える値がtrue/false以外にも存在します
+  # `on`というキーワードはそのひとつで、YAML的には予約語の一種といえます
+  # ただtrue/false以外の値がBooleanというのは、一般的なプログラマにはわかりづらいです
+  # そのためyamllintではデフォルトで、true/false以外のBooleanのキーワードを発見すると警告します
+  # この設定が`truthy.allowed-values`キーで、デフォルト値は`["true", "false"]`です
+  #
+  # しかしGitHub Actionsでは`on`というキーワードは必ず登場します
+  # そのためyamllintの警告を回避するため、`on`も許容する設定を入れます
+  truthy:
+    allowed-values: ["true", "false", "on"]
+
+  # yamllintのデフォルトでは、`foo: bar # some comment`のように
+  # YAML定義とコメントが同一行に書かれる場合、コメントの前にスペースを2つ空けるよう警告します
+  #
+  # 若干好みの範疇であるが、この警告でCIが落ちるのはあんまりうれしくありません
+  # エラーメッセージも「[comments] too few spaces before comment」と初見だと分かりづらいです
+  # 正直鬱陶しいわりに効果を実感できないため、コメント前のスペースは1つあればOKというポリシーにします
+  comments:
+    min-spaces-from-content: 1
+
+  # yamllintのデフォルトでは、1行あたりの最大長は80文字です
+  # しかしこの設定値は、現代のディスプレイサイズを鑑みるとさすがに短すぎます
+  #
+  # 行ごとの最大長は、経験則上あまりうるさく警告されても煩わしいだけです
+  # よって非常識な長さでなければ許容するという、比較的ゆるやかなポリシーとします
+  line-length:
+    max: 150
