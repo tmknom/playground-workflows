@@ -11,6 +11,6 @@ permissions: {}
 
 jobs:
   call:
-    uses: ./.github/workflows/reusable-lint.yml
+    uses: tmknom/lint-workflows/.github/workflows/reusable-workflows.yml@main
     permissions:
-      contents: write
+      contents: read
