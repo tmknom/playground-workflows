@@ -11,6 +11,6 @@ permissions: {}
 
 jobs:
   call:
-    uses: ./.github/workflows/reusable-lint.yml
+    uses: tmknom/lint-workflows/.github/workflows/composite-action.yml@feat/add-composite-action
     permissions:
       contents: read
