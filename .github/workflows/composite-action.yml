@@ -1,6 +1,11 @@
 name: Docs Composite Action
 on:
   workflow_call:
+    inputs:
+      branch:
+        type: string
+        required: false
+        description: The branch into which you want your code merged
 
 permissions: {}
 
