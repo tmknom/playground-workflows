@@ -6,7 +6,7 @@ Debugging on GitHub Actions.
 
 ## Description
 
-Template repository for creating Composite Action with GitHub Actions.
+Test action.
 
 ## Usage
 
