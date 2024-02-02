@@ -1,0 +1,35 @@
+name: Test
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "action.yml"
+      - ".github/workflows/test.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions: {}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Exercise
+        uses: ./.github/actions/git-config-action/
+
+      - name: Verify
+        run: |
+          set -x
+          USER_NAME="$(git config --global user.name)"
+          USER_EMAIL="$(git config --global user.email)"
+
+          test "${USER_NAME}" = "github-actions[bot]"
+          test "${USER_EMAIL}" = "41898282+github-actions[bot]@users.noreply.github.com"
