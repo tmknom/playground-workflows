@@ -1,0 +1,23 @@
+name: Rename me
+description: |
+  Template repository for creating Composite Action with GitHub Actions.
+
+  ## Usage
+
+  Write usage for your Composite Action.
+
+  ```yaml
+    steps:
+      - name: Template
+        uses: tmknom/template-composite-action@v0
+  ```
+
+runs:
+  using: composite
+
+  steps:
+    - name: Run
+      shell: bash
+      run: |
+        set -x
+        echo "Write steps"
