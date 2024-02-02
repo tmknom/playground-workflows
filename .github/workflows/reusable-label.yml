@@ -1,4 +1,4 @@
-name: Label
+name: Label Reusable Workflows
 on:
   workflow_call:
 
