@@ -1,0 +1,38 @@
+name: Git Config
+description: |
+  Set the bot account to the Git configuration file. This action sets the following:
+
+  - **user.name**: `github-actions[bot]`
+  - **user.email**: `41898282+github-actions[bot]@users.noreply.github.com`
+
+  This configuration is useful for workflows that code commits or push.
+
+  ## Usage
+
+  ```yaml
+    steps:
+      - name: Git config
+        uses: tmknom/git-config-action@v0
+  ```
+
+runs:
+  using: composite
+
+  steps:
+    - name: Start log group
+      shell: bash
+      run: echo "::group::Git Config"
+
+    - name: Configure bot account
+      shell: bash
+      env:
+        USER_NAME: github-actions[bot]
+        USER_EMAIL: 41898282+github-actions[bot]@users.noreply.github.com
+      run: |
+        set -x
+        git config --global user.name "${USER_NAME}"
+        git config --global user.email "${USER_EMAIL}"
+
+    - name: End log group
+      shell: bash
+      run: echo "::endgroup::"
