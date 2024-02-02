@@ -1,0 +1,16 @@
+name: Internal Lint
+on:
+  pull_request:
+    paths: ["**.yml", "**.yaml"]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  call:
+    uses: ./.github/workflows/reusable-lint.yml
+    permissions:
+      contents: write
