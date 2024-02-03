@@ -1,0 +1,144 @@
+name: Lint YAML using yamllint
+description: |
+  This action lint for YAML files using [yamllint][yamllint].
+
+  > [!NOTE]
+  > A linter for YAML files.
+  > yamllint does not only check for syntax validity,
+  > but for weirdnesses like key repetition and cosmetic problems such as lines length, trailing spaces, indentation, etc.
+
+  ## Usage
+
+  You should create a YAML file to define your configuration.
+  See details configuration syntax for yamllint in [yamllint][yamllint].
+
+  ### Configuration URL
+
+  ```yaml
+    steps:
+      - name: Yamllint
+        uses: tmknom/yamllint-action@v0
+        with:
+          configuration-url: https://raw.githubusercontent.com/tmknom/yamllint-action/main/configurations/default.yml
+  ```
+
+  ### Configuration Path
+
+  ```yaml
+    steps:
+      - name: Yamllint
+        uses: tmknom/yamllint-action@v0
+        with:
+          configuration-path: .yamllint.yml
+  ```
+
+inputs:
+  configuration-url:
+    required: false
+    description: The url for the yamllint configurations.
+  configuration-path:
+    required: false
+    description: The path for the yamllint configurations.
+
+outputs:
+  configuration-path:
+    value: ${{ steps.config.outputs.path }}
+    description: The path for the configuration file to passing yamllint.
+
+runs:
+  using: composite
+
+  steps:
+    - name: Start log group (Prepare)
+      run: echo "::group::Prepare yamllint"
+      shell: bash
+
+    - name: Generate unique identifier
+      id: unique
+      run: |
+        set -x
+        random="$(openssl rand -base64 16 | tr -d '=' | tr -d '+' | tr -d '-')"
+        identifier="${GITHUB_JOB}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_SHA}-${random}"
+        echo "identifier=${identifier}" >> "${GITHUB_OUTPUT}"
+      shell: bash
+
+    # curl options
+    #
+    # --silent: Silent or quiet mode.
+    # --silent: When used with -s, --silent, it makes curl show an error message if it fails.
+    # --location: If the server reports that the requested page has moved to a different location, redo the request on the new place.
+    # --output <file>: Write output to <file> instead of stdout.
+    - name: Download configuration
+      id: download
+      if: ${{ inputs.configuration-url != '' }}
+      env:
+        PREFIX: yamllint
+        IDENTIFIER: ${{ steps.unique.outputs.identifier }}
+        CONFIGURATION_URL: ${{ inputs.configuration-url }}
+      run: |
+        set -x
+        config="${RUNNER_TEMP}/${PREFIX}-${IDENTIFIER}.yml"
+        curl --silent --show-error --location --output "${config}" "${CONFIGURATION_URL}"
+        echo "path=${config}" >> "${GITHUB_OUTPUT}"
+      shell: bash
+
+    - name: Validate configuration
+      id: config
+      env:
+        CONFIG_PATH: ${{ steps.download.outputs.path || inputs.configuration-path }}
+        DEFAULT_CONFIG_PATH: .yamllint.yml
+      run: |
+        set -x
+        if [[ "${CONFIG_PATH}" != "" && -f "${CONFIG_PATH}" ]]; then
+          valid="${CONFIG_PATH}"
+        elif [[ -f "${DEFAULT_CONFIG_PATH}" ]]; then
+          valid="${DEFAULT_CONFIG_PATH}"
+        else
+          title="not found configuration file"
+          detail="recommend specifying valid configuration-path"
+          echo "::warning:: ${title}: ${detail}"
+        fi
+        echo "path=${valid}" >> "${GITHUB_OUTPUT}"
+      shell: bash
+
+    - name: Show configuration
+      if: ${{ steps.config.outputs.path != '' }}
+      env:
+        CONFIG_PATH: ${{ steps.config.outputs.path }}
+      run: |
+        set -x
+        cat "${CONFIG_PATH}"
+      shell: bash
+
+    - name: Prepare options
+      id: prepare
+      env:
+        CONFIG_PATH: ${{ steps.config.outputs.path }}
+      run: |
+        set -x
+        options=(--strict --format github)
+        if [[ "${CONFIG_PATH}" != "" ]]; then
+          options+=(--config-file "${CONFIG_PATH}")
+        fi
+        echo "options=${options[*]}" >> "${GITHUB_OUTPUT}"
+      shell: bash
+
+    - name: End log group (Prepare)
+      run: echo "::endgroup::"
+      shell: bash
+
+    - name: Start log group (Run)
+      run: echo "::group::Run yamllint"
+      shell: bash
+
+    - name: Run yamllint
+      env:
+        OPTIONS: ${{ steps.prepare.outputs.options }}
+      run: |
+        set -x
+        yamllint "${OPTIONS[@]}" .
+      shell: bash
+
+    - name: End log group (Run)
+      run: echo "::endgroup::"
+      shell: bash
