@@ -24,7 +24,7 @@ jobs:
         uses: ./.github/actions/labeler-action/third/
         with:
           # yamllint disable-line rule:line-length
-          configuration-url: https://raw.githubusercontent.com/tmknom/playground-workflows/main/.github/actions/labeler-action/third/configurations/conventional-commits.yml
+          configuration-url: https://raw.githubusercontent.com/tmknom/playground-workflows/v0/.github/actions/labeler-action/third/configurations/conventional-commits.yml
 
       - name: Labeler alter
         uses: ./.github/actions/labeler-action/third/
