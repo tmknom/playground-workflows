@@ -1,5 +1,6 @@
 name: Internal Lint
 on:
+  workflow_dispatch:
   pull_request:
     paths: ["**.yml", "**.yaml"]
 
@@ -11,6 +12,7 @@ permissions: {}
 
 jobs:
   call:
-    uses: tmknom/lint-workflows/.github/workflows/composite-action.yml@v0
+    # uses: tmknom/lint-workflows/.github/workflows/composite-action.yml@v0
+    uses: ./.github/workflows/reusable-lint.yml
     permissions:
       contents: read
