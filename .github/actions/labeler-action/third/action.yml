@@ -1,4 +1,4 @@
-name: Sharing Labeler
+name: Cross Labeler
 description: |
   This action serves as a convenient wrapper for [actions/labeler][labeler].
   Automatically assigning labels to new pull requests based on changed file paths or branch names, similar to [actions/labeler][labeler].
@@ -12,18 +12,18 @@ description: |
 
   ```yaml
     steps:
-      - name: Sharing Labeler
-        uses: tmknom/sharing-labeler-action@v0
+      - name: Cross Labeler
+        uses: tmknom/cross-labeler-action@v0
         with:
-          configuration-url: https://raw.githubusercontent.com/tmknom/sharing-labeler-action/main/configurations/conventional-commits.yml
+          configuration-url: https://raw.githubusercontent.com/tmknom/cross-labeler-action/main/configurations/conventional-commits.yml
   ```
 
   ### Configuration Path
 
   ```yaml
     steps:
-      - name: Sharing Labeler
-        uses: tmknom/sharing-labeler-action@v0
+      - name: Cross Labeler
+        uses: tmknom/cross-labeler-action@v0
         with:
           configuration-path: .github/labeler.yml
   ```

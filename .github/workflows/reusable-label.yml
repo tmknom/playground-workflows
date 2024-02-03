@@ -19,7 +19,7 @@ jobs:
       - name: Checkout
         uses: tmknom/checkout-action@v1
 
-      - name: Labeler
+      - name: Cross Labeler
         # uses: ./.github/actions/labeler-action/first/
         uses: ./.github/actions/labeler-action/third/
         with:
