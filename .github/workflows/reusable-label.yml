@@ -20,18 +20,6 @@ jobs:
         uses: tmknom/checkout-action@v1
 
       - name: Cross Labeler
-        # uses: ./.github/actions/labeler-action/first/
-        uses: ./.github/actions/labeler-action/third/
+        uses: tmknom/cross-labeler-action@v0
         with:
-          # yamllint disable-line rule:line-length
-          configuration-url: https://raw.githubusercontent.com/tmknom/playground-workflows/v0/.github/actions/labeler-action/third/configurations/conventional-commits.yml
-
-      - name: Labeler alter
-        uses: ./.github/actions/labeler-action/third/
-        with:
-          configuration-path: .github/labeler.yml
-        continue-on-error: true
-
-      - name: Labeler alter omit
-        uses: ./.github/actions/labeler-action/third/
-        continue-on-error: true
+          configuration-url: https://raw.githubusercontent.com/tmknom/cross-labeler-action/v0/configurations/conventional-commits.yml
