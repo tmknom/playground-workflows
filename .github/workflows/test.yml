@@ -1,0 +1,43 @@
+name: Test
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "action.yml"
+      - ".github/workflows/test.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions: {}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: tmknom/checkout-action@v1
+
+      - name: Setup
+        run: echo "Setup"
+
+      - name: Exercise
+        id: exercise
+        uses: ./
+
+      - name: Verify
+        env:
+          OUTCOME: ${{ steps.exercise.outcome }}
+        run: test "${OUTCOME}" = "success"
+
+      - name: Teardown
+        run: echo "Teardown"
