@@ -1,0 +1,30 @@
+name: Dependabot
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@1e31de5234b9f8995739874a8ce0492dc87873e2 # v4.0.0
+
+      - name: Labeler
+        uses: actions/labeler@ac9175f8a1f3625fd0d4fb234536d26811351594 # v4.3.0
+        with:
+          configuration-path: .github/labeler.yml
+
+      - name: Git Config
+        uses: tmknom/git-config-action@6ddb0c7929ae61b4bbfb5a0800d4ca72fa2584de # v0.1.0
+
+      - name: Cross Labeler
+        uses: tmknom/cross-labeler-action@f2ddd12d2801b592aaac3997c5147cc88eb306fe # v0.2.0
+        with:
+          configuration-url: https://raw.githubusercontent.com/tmknom/cross-labeler-action/v0/configurations/conventional-commits.yml
