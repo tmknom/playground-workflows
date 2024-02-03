@@ -18,7 +18,7 @@ jobs:
       - name: Checkout
         uses: tmknom/checkout-action@v1
 
-      - name: Lint YAML using yamllint
+      - name: Cross Yamllint
         uses: ./.github/actions/yamllint-action/first/
 
       - name: Run actionlint
