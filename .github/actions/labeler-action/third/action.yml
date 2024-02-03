@@ -1,12 +1,12 @@
 name: Sharing Labeler
 description: |
   This action serves as a convenient wrapper for [actions/labeler][labeler].
-  Automatically label new pull requests based on the paths of files being changed or the branch name, similar to [actions/labeler][labeler].
+  Automatically assigning labels to new pull requests based on changed file paths or branch names, similar to [actions/labeler][labeler].
 
   ## Usage
 
-  You must create a YAML file to define your configuration.
-  See details configuration syntax for labeler in [actions/labeler][labeler].
+  To set up the action, you need to create a YAML file that defines your configurations.
+  Refer to the detailed configuration syntax for the labeler in [actions/labeler][labeler].
 
   ### Configuration URL
 
@@ -45,17 +45,17 @@ runs:
   using: composite
 
   steps:
-    - name: Start log group
-      run: echo "::group::Sharing Labeler"
-      shell: bash
-
+    # RFC 4648: The Base16, Base32, and Base64 Data Encodings
+    # https://datatracker.ietf.org/doc/html/rfc4648
     - name: Generate unique identifier
       id: unique
       run: |
+        echo "::group::Generate unique identifier"
         set -x
-        random="$(openssl rand -base64 16 | tr -d '=' | tr -d '+' | tr -d '-')"
+        random="$(openssl rand -base64 16 | tr -d '=' | tr -d '+' | tr -d '/')"
         identifier="${GITHUB_JOB}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_SHA}-${random}"
         echo "identifier=${identifier}" >> "${GITHUB_OUTPUT}"
+        echo "::endgroup::"
       shell: bash
 
     # curl options
@@ -72,10 +72,12 @@ runs:
         IDENTIFIER: ${{ steps.unique.outputs.identifier }}
         CONFIGURATION_URL: ${{ inputs.configuration-url }}
       run: |
+        echo "::group::Download configuration"
         set -x
         config="${RUNNER_TEMP}/${PREFIX}-${IDENTIFIER}.yml"
         curl --silent --show-error --location --output "${config}" "${CONFIGURATION_URL}"
         echo "path=${config}" >> "${GITHUB_OUTPUT}"
+        echo "::endgroup::"
       shell: bash
 
     - name: Validate configuration
@@ -84,30 +86,33 @@ runs:
         CONFIG_PATH: ${{ steps.download.outputs.path || inputs.configuration-path }}
         DEFAULT_CONFIG_PATH: .github/labeler.yml
       run: |
+        echo "::group::Validate configuration"
         set -x
         if [[ "${CONFIG_PATH}" != "" && -f "${CONFIG_PATH}" ]]; then
+          title="configuration file for the labeler was omitted"
+          message="recommend explicitly specifying the configuration file"
+          echo "::warning title=${title}::${message}"
           valid="${CONFIG_PATH}"
         elif [[ -f "${DEFAULT_CONFIG_PATH}" ]]; then
           valid="${DEFAULT_CONFIG_PATH}"
         else
-          title="not found configuration file"
-          detail="specify valid configuration-path or configuration-url"
-          echo "::error:: ${title}: ${detail}"
+          title="not found configuration file for the labeler"
+          message="ensure that you specify valid configuration-path or configuration-url"
+          echo "::error title=${title}::${message}"
           exit 1
         fi
         echo "path=${valid}" >> "${GITHUB_OUTPUT}"
+        echo "::endgroup::"
       shell: bash
 
     - name: Show configuration
       env:
         CONFIG_PATH: ${{ steps.config.outputs.path }}
       run: |
+        echo "::group::Show configuration"
         set -x
         cat "${CONFIG_PATH}"
-      shell: bash
-
-    - name: End log group
-      run: echo "::endgroup::"
+        echo "::endgroup::"
       shell: bash
 
     - name: Labeler
