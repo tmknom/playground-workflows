@@ -16,44 +16,10 @@ jobs:
       contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: tmknom/checkout-action@v1
 
-      # https://yamllint.readthedocs.io/en/stable/rules.html
-      - name: Generate yamllint configuration
-        id: config
-        env:
-          DEFAULT_CONFIG_PATH: .yamllint.yml
-        run: |
-          set -x
-          config_path="${DEFAULT_CONFIG_PATH}"
-          cat <<EOF >"${config_path}"
-          extends: default
-          rules:
-            document-start: disable
-            truthy:
-              allowed-values: ["true", "false", "on"]
-            comments:
-              min-spaces-from-content: 1
-            braces:
-              max-spaces-inside: 1
-            line-length:
-              max: 150
-          EOF
-          echo "path=${config_path}" >> "${GITHUB_OUTPUT}"
-
-      - name: Show yamllint configuration
-        env:
-          CONFIG_PATH: ${{ steps.config.outputs.path }}
-        run: |
-          set -x
-          cat "${CONFIG_PATH}"
-
-      - name: Run yamllint
-        env:
-          CONFIG_PATH: ${{ steps.config.outputs.path }}
-        run: |
-          set -x
-          yamllint --strict --format github --config-file "${CONFIG_PATH}" .
+      - name: Lint YAML using yamllint
+        uses: ./.github/actions/yamllint-action/first/
 
       - name: Run actionlint
         run: |
