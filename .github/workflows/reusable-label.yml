@@ -20,4 +20,18 @@ jobs:
         uses: tmknom/checkout-action@v1
 
       - name: Labeler
-        uses: ./.github/actions/labeler-action/first/
+        # uses: ./.github/actions/labeler-action/first/
+        uses: ./.github/actions/labeler-action/third/
+        with:
+          # yamllint disable-line rule:line-length
+          configuration-url: https://raw.githubusercontent.com/tmknom/playground-workflows/main/.github/actions/labeler-action/third/configurations/conventional-commits.yml
+
+      - name: Labeler alter
+        uses: ./.github/actions/labeler-action/third/
+        with:
+          configuration-path: .github/labeler.yml
+        continue-on-error: true
+
+      - name: Labeler alter omit
+        uses: ./.github/actions/labeler-action/third/
+        continue-on-error: true
