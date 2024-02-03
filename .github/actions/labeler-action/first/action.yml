@@ -1,12 +1,12 @@
 name: Sharing Labeler
 description: |
   This action serves as a convenient wrapper for [actions/labeler][labeler].
-  Automatically label new pull requests based on the paths of files being changed or the branch name, similar to [actions/labeler][labeler].
+  Automatically assigning labels to new pull requests based on changed file paths or branch names, similar to [actions/labeler][labeler].
 
   ## Usage
 
-  You must create a YAML file to define your configuration.
-  See details configuration syntax for labeler in [actions/labeler][labeler].
+  To set up the action, you need to create a YAML file that defines your configurations.
+  Refer to the detailed configuration syntax for the labeler in [actions/labeler][labeler].
 
   ### Configuration Path
 
@@ -31,4 +31,4 @@ runs:
       uses: actions/labeler@8558fd74291d67161a8a78ce36a881fa63b766a9 # v5.0.0
       with:
         sync-labels: true
-        configuration-path: ${{ inputs.configuration-path }}
+        configuration-path: ${{ inputs.configuration-path || '.github/labeler.yml' }}
