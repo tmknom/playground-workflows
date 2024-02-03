@@ -10,8 +10,9 @@ permissions: {}
 
 jobs:
   call:
+    uses: tmknom/label-workflows/.github/workflows/reusable-workflows.yml@main
     # uses: tmknom/label-workflows/.github/workflows/composite-action.yml@v0
-    uses: ./.github/workflows/reusable-label.yml
+    # uses: ./.github/workflows/reusable-label.yml
     permissions:
       contents: read
       pull-requests: write
