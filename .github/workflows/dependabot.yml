@@ -28,6 +28,6 @@ jobs:
         uses: tmknom/git-push-action@b81547a5d78b2de8032553306c611e9ff5f98f12 # v0.1.0
 
       - name: Cross Labeler
-        uses: tmknom/cross-labeler-action@f2ddd12d2801b592aaac3997c5147cc88eb306fe # v0.2.0
+        uses: tmknom/cross-labeler-action@71badeae9778cb9bbba312f9e1c035bb0dff72c0 # v0.2.1
         with:
           configuration-url: https://raw.githubusercontent.com/tmknom/cross-labeler-action/v0/configurations/conventional-commits.yml
