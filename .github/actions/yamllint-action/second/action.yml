@@ -10,7 +10,7 @@ description: |
   ## Usage
 
   To set up the action, you need to create a YAML file that defines your configurations.
-  Refer to the detailed configuration syntax for the yamllint in [yamllint/Rules][yamllint_rules].
+  Refer to the detailed configuration syntax provided in the [yamllint documentation][yamllint_docs].
 
   ### Configuration URL
 
@@ -54,8 +54,9 @@ runs:
       run: |
         echo "::group::Generate unique identifier"
         set -x
+        current="$(date '+%Y%m%d-%H%M%S')"
         random="$(openssl rand -base64 16 | tr -dc 'a-zA-Z0-9')"
-        identifier="${GITHUB_JOB}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_SHA}-${random}"
+        identifier="${current}-${GITHUB_JOB}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_SHA}-${random}"
         echo "identifier=${identifier}" >> "${GITHUB_OUTPUT}"
         echo "::endgroup::"
       shell: bash
