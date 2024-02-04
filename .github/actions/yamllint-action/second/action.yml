@@ -1,33 +1,33 @@
-name: Lint YAML using yamllint
+name: Cross Yamllint
 description: |
-  This action lint for YAML files using [yamllint][yamllint].
+  This action runs [yamllint][yamllint], a tool designed to lint YAML files.
 
   > [!NOTE]
-  > A linter for YAML files.
-  > yamllint does not only check for syntax validity,
-  > but for weirdnesses like key repetition and cosmetic problems such as lines length, trailing spaces, indentation, etc.
+  > yamllint checks not only for syntax validity,
+  > but also detects potential bugs like key repetition,
+  > and style problems such as lines length, trailing spaces, indentation, etc.
 
   ## Usage
 
-  You should create a YAML file to define your configuration.
-  See details configuration syntax for yamllint in [yamllint][yamllint].
+  To set up the action, you need to create a YAML file that defines your configurations.
+  Refer to the detailed configuration syntax for the yamllint in [yamllint/Rules][yamllint_rules].
 
   ### Configuration URL
 
   ```yaml
     steps:
-      - name: Yamllint
-        uses: tmknom/yamllint-action@v0
+      - name: Cross Yamllint
+        uses: tmknom/cross-yamllint-action@v0
         with:
-          configuration-url: https://raw.githubusercontent.com/tmknom/yamllint-action/main/configurations/default.yml
+          configuration-url: https://raw.githubusercontent.com/tmknom/cross-yamllint-action/main/configurations/default.yml
   ```
 
   ### Configuration Path
 
   ```yaml
     steps:
-      - name: Yamllint
-        uses: tmknom/yamllint-action@v0
+      - name: Cross Yamllint
+        uses: tmknom/cross-yamllint-action@v0
         with:
           configuration-path: .yamllint.yml
   ```
@@ -49,17 +49,15 @@ runs:
   using: composite
 
   steps:
-    - name: Start log group (Prepare)
-      run: echo "::group::Prepare yamllint"
-      shell: bash
-
     - name: Generate unique identifier
       id: unique
       run: |
+        echo "::group::Generate unique identifier"
         set -x
-        random="$(openssl rand -base64 16 | tr -d '=' | tr -d '+' | tr -d '-')"
+        random="$(openssl rand -base64 16 | tr -dc 'a-zA-Z0-9')"
         identifier="${GITHUB_JOB}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${GITHUB_SHA}-${random}"
         echo "identifier=${identifier}" >> "${GITHUB_OUTPUT}"
+        echo "::endgroup::"
       shell: bash
 
     # curl options
@@ -76,10 +74,12 @@ runs:
         IDENTIFIER: ${{ steps.unique.outputs.identifier }}
         CONFIGURATION_URL: ${{ inputs.configuration-url }}
       run: |
+        echo "::group::Download configuration"
         set -x
         config="${RUNNER_TEMP}/${PREFIX}-${IDENTIFIER}.yml"
         curl --silent --show-error --location --output "${config}" "${CONFIGURATION_URL}"
         echo "path=${config}" >> "${GITHUB_OUTPUT}"
+        echo "::endgroup::"
       shell: bash
 
     - name: Validate configuration
@@ -88,17 +88,22 @@ runs:
         CONFIG_PATH: ${{ steps.download.outputs.path || inputs.configuration-path }}
         DEFAULT_CONFIG_PATH: .yamllint.yml
       run: |
+        echo "::group::Validate configuration"
         set -x
         if [[ "${CONFIG_PATH}" != "" && -f "${CONFIG_PATH}" ]]; then
           valid="${CONFIG_PATH}"
         elif [[ -f "${DEFAULT_CONFIG_PATH}" ]]; then
+          title="configuration file for the yamllint was omitted"
+          message="recommend explicitly specifying the configuration file"
+          echo "::notice title=${title}::${message}"
           valid="${DEFAULT_CONFIG_PATH}"
         else
-          title="not found configuration file"
-          detail="recommend specifying valid configuration-path"
+          title="not found configuration file for the yamllint"
+          message="ensure that you specify valid configuration-path"
           echo "::warning:: ${title}: ${detail}"
         fi
         echo "path=${valid}" >> "${GITHUB_OUTPUT}"
+        echo "::endgroup::"
       shell: bash
 
     - name: Show configuration
@@ -106,39 +111,22 @@ runs:
       env:
         CONFIG_PATH: ${{ steps.config.outputs.path }}
       run: |
+        echo "::group::Show configuration"
         set -x
         cat "${CONFIG_PATH}"
-      shell: bash
-
-    - name: Prepare options
-      id: prepare
-      env:
-        CONFIG_PATH: ${{ steps.config.outputs.path }}
-      run: |
-        set -x
-        options=(--strict --format github)
-        if [[ "${CONFIG_PATH}" != "" ]]; then
-          options+=(--config-file "${CONFIG_PATH}")
-        fi
-        echo "options=${options[*]}" >> "${GITHUB_OUTPUT}"
-      shell: bash
-
-    - name: End log group (Prepare)
-      run: echo "::endgroup::"
-      shell: bash
-
-    - name: Start log group (Run)
-      run: echo "::group::Run yamllint"
+        echo "::endgroup::"
       shell: bash
 
     - name: Run yamllint
       env:
         OPTIONS: ${{ steps.prepare.outputs.options }}
       run: |
+        echo "::group::Run yamllint"
         set -x
-        yamllint "${OPTIONS[@]}" .
-      shell: bash
-
-    - name: End log group (Run)
-      run: echo "::endgroup::"
+        options=(--strict --format github)
+        if [[ "${CONFIG_PATH}" != "" ]]; then
+          options+=(--config-file "${CONFIG_PATH}")
+        fi
+        yamllint "${options[@]}" .
+        echo "::endgroup::"
       shell: bash

@@ -41,11 +41,8 @@ jobs:
           ghcr.io/tmknom/actdocs inject --sort \
           --file "${MD_FILE}" "${YAML_FILE}"
 
-      - name: Git config
-        run: |
-          set -x
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+      - name: Git Config
+        uses: tmknom/git-config-action@6ddb0c7929ae61b4bbfb5a0800d4ca72fa2584de # v0.1.0
 
       - name: Git diff
         id: git
