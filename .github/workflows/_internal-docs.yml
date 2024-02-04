@@ -1,0 +1,17 @@
+name: Internal Docs
+on:
+  workflow_dispatch:
+  push:
+    branches: ["main"]
+    paths: ["action.yml"]
+
+concurrency: ${{ github.workflow }}-${{ github.ref }}
+
+permissions: {}
+
+jobs:
+  call:
+    uses: ./.github/workflows/reusable-docs.yml
+    permissions:
+      contents: write
+      pull-requests: write
