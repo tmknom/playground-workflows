@@ -1,0 +1,40 @@
+name: Example
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  git-push:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: tmknom/checkout-action@v1
+
+      - name: Create
+        run: |
+          set -x
+          date > test.txt
+
+      - name: Git Config
+        uses: tmknom/git-config-action@6ddb0c7929ae61b4bbfb5a0800d4ca72fa2584de # v0.1.0
+
+      - name: Git Push
+        id: push
+        uses: tmknom/git-push-action@main
+
+      - name: View
+        env:
+          PUSHED: ${{ steps.push.outputs.pushed }}
+          BRANCH: ${{ steps.push.outputs.branch }}
+        run: |
+          set -x
+          echo "PUSHED=${PUSHED}"
+          echo "BRANCH=${BRANCH}"
