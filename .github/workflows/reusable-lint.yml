@@ -19,7 +19,9 @@ jobs:
         uses: tmknom/checkout-action@v1
 
       - name: Cross Yamllint
-        uses: ./.github/actions/yamllint-action/first/
+        uses: ./.github/actions/yamllint-action/second/
+        with:
+          configuration-url: https://raw.githubusercontent.com/tmknom/cross-yamllint-action/main/configurations/reusable-workflows.yml
 
       - name: Run actionlint
         run: |
