@@ -1,0 +1,74 @@
+name: Traceable Identifier
+description: |
+  This action generates identifier that has high traceability to optimize using GitHub Actions.
+  The traceable identifier contains following information:
+
+  - **Timestamp**: the date-time of occurrence for a particular calling action
+  - **Job id**: the id of the current job
+  - **Workflow run id**: a unique number for each workflow run within a repository
+  - **Workflow run attempt**: a unique number for each attempt of a particular workflow run in a repository
+  - **Commit SHA**: the commit SHA that triggered the workflow
+  - **Actor id**: the account id of the person or app that triggered the initial workflow run
+  - **Random value**: a random string for a particular calling action
+
+  ## Usage
+
+  ```yaml
+    steps:
+      - name: Traceable Identifier
+        uses: tmknom/traceable-identifier-action@v0
+  ```
+
+outputs:
+  identifier:
+    value: ${{ steps.traceable.outputs.identifier }}
+    description: Generated traceable identifier.
+
+runs:
+  using: composite
+
+  steps:
+    - name: Generate random value
+      id: random
+      run: |
+        echo "::group::Generate random value"
+        set -x
+        random="$(openssl rand -base64 8 | tr -dc 'a-zA-Z0-9')"
+        echo "random=${random}" >> "${GITHUB_OUTPUT}"
+        echo "::endgroup::"
+      shell: bash
+
+    - name: Generate current date-time
+      id: current
+      run: |
+        echo "::group::Generate current date-time"
+        set -x
+        echo "date=$(date '+%Y%m%d')" >> "${GITHUB_OUTPUT}"
+        echo "time=$(date '+%H%M%S')" >> "${GITHUB_OUTPUT}"
+        echo "::endgroup::"
+      shell: bash
+
+    - name: Generate traceable identifier
+      id: traceable
+      env:
+        RANDOM_VALUE: ${{ steps.random.outputs.value }}
+        CURRENT_DATE: ${{ steps.current.outputs.date }}
+        CURRENT_TIME: ${{ steps.current.outputs.time }}
+      run: |
+        echo "::group::Generate traceable identifier"
+        set -x
+        separator="-"
+        elements=(
+          "${CURRENT_DATE}"
+          "${CURRENT_TIME}"
+          "${GITHUB_JOB}"
+          "${GITHUB_RUN_ID}"
+          "${GITHUB_RUN_ATTEMPT}"
+          "${GITHUB_SHA}"
+          "${GITHUB_ACTOR_ID}"
+          "${RANDOM_VALUE}"
+        )
+        join="$(IFS="${separator}" ; echo "${elements[*]}")"
+        echo "identifier=${join: -1}" >> "${GITHUB_OUTPUT}"
+        echo "::endgroup::"
+      shell: bash
