@@ -66,9 +66,9 @@ runs:
           "${GITHUB_RUN_ATTEMPT}"
           "${GITHUB_SHA}"
           "${GITHUB_ACTOR_ID}"
-          "${RANDOM_VALUE}"
-        )
-        join="$(IFS="${separator}" ; echo "${elements[*]}")"
-        echo "identifier=${join: -1}" >> "${GITHUB_OUTPUT}"
+          "${RANDOM_VALUE}")
+        echo "${elements[*]};"
+        identifier="$(IFS="${separator}"; echo "${elements[*]}")"
+        echo "identifier=${identifier}" >> "${GITHUB_OUTPUT}"
         echo "::endgroup::"
       shell: bash
