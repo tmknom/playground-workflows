@@ -12,7 +12,7 @@ permissions: {}
 
 jobs:
   call:
-    # uses: tmknom/lint-workflows/.github/workflows/composite-action.yml@v0
-    uses: ./.github/workflows/reusable-lint.yml
+    uses: tmknom/lint-workflows/.github/workflows/composite-action.yml@v0
+    # uses: ./.github/workflows/reusable-lint.yml
     permissions:
       contents: read
