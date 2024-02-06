@@ -1,3 +1,5 @@
+.github/actions/*/*.md
+
 # https://github.com/tmknom/makefiles
 .makefiles/
 
