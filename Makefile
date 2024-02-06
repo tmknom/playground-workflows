@@ -4,10 +4,8 @@
 
 .PHONY: docs
 docs: ## Generate documentation for README
-	$(ACTDOCS) inject --sort --file=$(ACTION_DIR)/yamllint-action/first/tmp/README.md $(ACTION_DIR)/yamllint-action/first/action.yml
-	$(ACTDOCS) inject --sort --file=$(ACTION_DIR)/yamllint-action/second/tmp/README.md $(ACTION_DIR)/yamllint-action/second/action.yml
-	$(ACTDOCS) inject --sort --file=$(ACTION_DIR)/git-push-action/tmp/README.md $(ACTION_DIR)/git-push-action/action.yml
+	$(ACTDOCS) --file=$(ACTION_DIR)/traceable-identifier-action/README.md $(ACTION_DIR)/traceable-identifier-action/action.yml
 	@echo "Done: make docs"
 
-ACTDOCS ?= $(SECURE_DOCKER_RUN) ghcr.io/tmknom/actdocs:latest
+ACTDOCS ?= $(SECURE_DOCKER_RUN) ghcr.io/tmknom/actdocs:latest inject --sort
 ACTION_DIR ?= ./.github/actions
