@@ -11,7 +11,8 @@ permissions: {}
 
 jobs:
   call:
-    uses: ./.github/workflows/reusable-docs.yml
+    uses: tmknom/docs-workflows/.github/workflows/composite-action.yml@main
+    # uses: ./.github/workflows/reusable-docs.yml
     permissions:
       contents: write
       pull-requests: write
