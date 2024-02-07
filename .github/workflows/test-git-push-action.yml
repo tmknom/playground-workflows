@@ -1,0 +1,109 @@
+name: Test pushed
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "action.yml"
+      - ".github/workflows/test.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions: {}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  exercise:
+    name: Setup and Exercise
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    outputs:
+      pushed: ${{ steps.exercise.outputs.pushed }}
+      branch: ${{ steps.exercise.outputs.branch }}
+    steps:
+      - name: Checkout
+        uses: tmknom/checkout-action@v1
+
+      - name: Setup
+        run: |
+          set -x
+          date >> README.md
+
+      - name: Git Config
+        uses: tmknom/git-config-action@6ddb0c7929ae61b4bbfb5a0800d4ca72fa2584de # v0.1.0
+
+      - name: Exercise
+        id: exercise
+        uses: tmknom/git-push-action@v0
+        with:
+          message: Test git-push-action
+
+  verify:
+    name: Verify
+    needs: [exercise]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: tmknom/checkout-action@v1
+        with:
+          ref: ${{ needs.exercise.outputs.branch }}
+          fetch-depth: 3
+
+      - name: Verify
+        env:
+          PUSHED: ${{ needs.exercise.outputs.pushed }}
+        run: |
+          set -x
+          test "${PUSHED}" = "true"
+          test "$(git log --oneline --pretty=%s -1)" = "Test git-push-action"
+
+  teardown:
+    name: Teardown
+    if: ${{ always() }}
+    needs: [exercise, verify]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: tmknom/checkout-action@v1
+
+      - name: Delete branch
+        env:
+          BRANCH: ${{ needs.exercise.outputs.branch }}
+        run: |
+          set -x
+          git push origin "${BRANCH}" --delete || true
+
+  test-no-pushed:
+    name: Test for no pushed
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: tmknom/checkout-action@v1
+
+      - name: Exercise
+        id: exercise
+        uses: tmknom/git-push-action@v0
+        with:
+          message: test message
+
+      - name: Verify
+        env:
+          PUSHED: ${{ steps.exercise.outputs.pushed }}
+        run: |
+          set -x
+          test "${PUSHED}" = "false"

@@ -34,7 +34,7 @@ runs:
         echo "::group::Generate random value"
         set -x
         random="$(openssl rand -base64 8 | tr -dc 'a-zA-Z0-9')"
-        echo "random=${random}" >> "${GITHUB_OUTPUT}"
+        echo "value=${random}" >> "${GITHUB_OUTPUT}"
         echo "::endgroup::"
       shell: bash
 
