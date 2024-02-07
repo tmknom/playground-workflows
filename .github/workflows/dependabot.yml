@@ -24,6 +24,9 @@ jobs:
       - name: Git Config
         uses: tmknom/git-config-action@6ddb0c7929ae61b4bbfb5a0800d4ca72fa2584de # v0.1.0
 
+      - name: Traceable Identifier
+        uses: tmknom/traceable-identifier-action@6555160c543eb771a876fb4ceaecd43ec79df7b6 # v0.1.0
+
       - name: Git Push
         uses: tmknom/git-push-action@b81547a5d78b2de8032553306c611e9ff5f98f12 # v0.1.0
 
