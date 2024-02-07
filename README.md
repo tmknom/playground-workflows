@@ -6,7 +6,7 @@ Debugging on GitHub Actions.
 
 ## Description
 
-Test super action.
+Test action.
 
 ## Usage
 
