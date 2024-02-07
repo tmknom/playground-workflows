@@ -22,7 +22,7 @@ jobs:
           configuration-path: .github/labeler.yml
 
       - name: Git Config
-        uses: tmknom/git-config-action@6ddb0c7929ae61b4bbfb5a0800d4ca72fa2584de # v0.1.0
+        uses: tmknom/git-config-action@970621c4819d5a601bbac4a2bcf6f5f80d92a2e6 # v0.2.0
 
       - name: Traceable Identifier
         uses: tmknom/traceable-identifier-action@6555160c543eb771a876fb4ceaecd43ec79df7b6 # v0.1.0
