@@ -25,7 +25,7 @@ jobs:
 
       - name: Git Push
         id: push
-        uses: tmknom/git-push-action@7f731ecbcd08c4dce6bcf2b0b79d117f6cbc5864 # v0.2.0
+        uses: tmknom/git-push-action@d88b186c540e4179bbb8e228b9c09e1a45677be7 # v0.2.1
 
       - name: View
         env:

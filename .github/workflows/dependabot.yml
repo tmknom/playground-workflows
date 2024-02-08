@@ -28,7 +28,7 @@ jobs:
         uses: tmknom/traceable-identifier-action@6555160c543eb771a876fb4ceaecd43ec79df7b6 # v0.1.0
 
       - name: Git Push
-        uses: tmknom/git-push-action@7f731ecbcd08c4dce6bcf2b0b79d117f6cbc5864 # v0.2.0
+        uses: tmknom/git-push-action@d88b186c540e4179bbb8e228b9c09e1a45677be7 # v0.2.1
 
       - name: Cross Labeler
         uses: tmknom/cross-labeler-action@71badeae9778cb9bbba312f9e1c035bb0dff72c0 # v0.2.1
