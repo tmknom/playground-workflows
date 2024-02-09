@@ -2,9 +2,7 @@ name: Test
 on:
   workflow_dispatch:
   pull_request:
-    paths:
-      - "action.yml"
-      - ".github/workflows/test.yml"
+    paths: ["action.yml", ".github/workflows/test.yml"]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -28,7 +26,9 @@ jobs:
         uses: tmknom/checkout-action@v1
 
       - name: Setup
-        run: echo "Setup"
+        run: |
+          set -x
+          echo "Setup"
 
       - name: Exercise
         id: exercise
@@ -37,7 +37,12 @@ jobs:
       - name: Verify
         env:
           OUTCOME: ${{ steps.exercise.outcome }}
-        run: test "${OUTCOME}" = "success"
+        run: |
+          set -x
+          test "${OUTCOME}" = "success"
 
       - name: Teardown
-        run: echo "Teardown"
+        if: ${{ always() }}
+        run: |
+          set -x
+          echo "Teardown"
