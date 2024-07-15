@@ -1,0 +1,70 @@
+name: tfmod action
+description: |
+  Run tfmod
+
+  ## Usage
+
+  ```yaml
+    steps:
+      - name: tfmod
+        uses: tmknom/tfmod-action@v0
+  ```
+
+inputs:
+  base-dir:
+    default: ${{ github.workspace }}
+    required: false
+    description: The base directory that contains tf files
+
+outputs:
+  dirs:
+    value: ${{ steps.tfmod.outputs.dirs }}
+    description: The state directories that depends on modified modules.
+
+runs:
+  using: composite
+
+  steps:
+    - name: Git diff files
+      id: diff
+      env:
+        DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      run: |
+        set -x
+        files="$(git --no-pager diff origin/"${DEFAULT_BRANCH}"...HEAD --name-only --no-color | xargs  | sed 's/ /,/g')"
+        echo "files=${files}" >> "${GITHUB_OUTPUT}"
+      shell: bash
+
+    - name: Install tfmod
+      env:
+        VERSION: v0.1.0
+        BASE_URL: https://github.com/tmknom/tfmod/releases/download
+      run: |
+        set -x
+        url="${BASE_URL}/${VERSION}/tfmod_Linux_x86_64.tar.gz"
+        dir_path="${RUNNER_TEMP}/tfmod"
+
+        mkdir -p "${dir_path}"
+        curl -sSL -o "${dir_path}/tfmod.tar.gz" "${url}"
+        tar -zxvf "${dir_path}/tfmod.tar.gz" -C "${dir_path}"
+        echo "${dir_path}" >> "${GITHUB_PATH}"
+      shell: bash
+
+    - name: Run tfmod download
+      env:
+        BASE_DIR: ${{ inputs.base-dir }}
+      run: |
+        set -x
+        tfmod download --format=text --base="${BASE_DIR}"
+      shell: bash
+
+    - name: Run tfmod dependent
+      id: tfmod
+      env:
+        BASE_DIR: ${{ inputs.base-dir }}
+        DIFF_FILES: ${{ steps.diff.outputs.files }}
+      run: |
+        set -x
+        dependent="$(tfmod dependent --format=text --base="${BASE_DIR}" --module="${DIFF_FILES}")"
+        echo "dependent=${dependent}" >> "${GITHUB_OUTPUT}"
+      shell: bash

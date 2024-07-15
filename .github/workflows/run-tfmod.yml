@@ -1,0 +1,52 @@
+name: Test tfmod
+on:
+  workflow_dispatch:
+  pull_request:
+    paths: ["action.yml", ".github/workflows/test.yml"]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions: {}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: tmknom/checkout-action@v1
+        with:
+          fetch-depth: 0
+
+      - name: Exercise
+        id: exercise
+        uses: ./.github/actions/tfmod-action/
+
+      - name: Run dependent foo
+        run: |
+          set -x
+          tfmod dependent --format=json --base="${GITHUB_WORKSPACE}" --module="testdata/terraform/module/foo" | jq .
+
+      - name: Run dependent bar
+        run: |
+          set -x
+          tfmod dependent --format=json --base="${GITHUB_WORKSPACE}" --module="testdata/terraform/module/bar" | jq .
+
+      - name: Run dependent baz
+        run: |
+          set -x
+          tfmod dependent --format=json --base="${GITHUB_WORKSPACE}" --module="testdata/terraform/module/baz" | jq .
+
+      - name: Run dependent download
+        run: |
+          set -x
+          tfmod download --base="${GITHUB_WORKSPACE}" --format=json | jq .
