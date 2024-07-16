@@ -1,45 +1,55 @@
-name: tfmod action
+name: Terraform dependency
 description: |
-  Run tfmod
+  This action finds the state directories that use the modified Terraform modules.
+  A "state directory" is where you run `terraform plan` or `terraform apply`.
+  It typically stores the `terraform.tfstate` file.
+
+  For example, if you modify a Terraform module, you can see which state directories are affected.
+  With this action, you can easily identify relationships in your Terraform configurations,
+  making it easier to manage changes and understand their impacts.
 
   ## Usage
 
   ```yaml
     steps:
-      - name: tfmod
-        uses: tmknom/tfmod-action@v0
+      - name: Terraform dependency
+        uses: tmknom/tf-dependency-action@v0
   ```
 
 inputs:
   base-dir:
     default: ${{ github.workspace }}
     required: false
-    description: The base directory that contains tf files
+    description: The base directory that contains the state directories and Terraform modules.
 
 outputs:
   dirs:
-    value: ${{ steps.tfmod.outputs.dirs }}
-    description: The state directories that depends on modified modules.
+    value: ${{ steps.dependent.outputs.dirs }}
+    description: The state directories that use the modified Terraform modules.
 
 runs:
   using: composite
 
   steps:
-    - name: Git diff files
+    - name: Git diff
       id: diff
       env:
         DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
       run: |
+        echo "::group::Git diff"
         set -x
-        files="$(git --no-pager diff origin/"${DEFAULT_BRANCH}"...HEAD --name-only --no-color | xargs  | sed 's/ /,/g')"
-        echo "files=${files}" >> "${GITHUB_OUTPUT}"
+        filepath="${RUNNER_TEMP}/tfmod.diff"
+        git --no-pager diff origin/"${DEFAULT_BRANCH}"...HEAD --name-only --no-color | tee -a "${filepath}"
+        echo "filepath=${filepath}" >> "${GITHUB_OUTPUT}"
+        echo "::endgroup::"
       shell: bash
 
     - name: Install tfmod
       env:
-        VERSION: v0.1.0
+        VERSION: v0.2.0
         BASE_URL: https://github.com/tmknom/tfmod/releases/download
       run: |
+        echo "::group::Install tfmod"
         set -x
         url="${BASE_URL}/${VERSION}/tfmod_Linux_x86_64.tar.gz"
         dir_path="${RUNNER_TEMP}/tfmod"
@@ -48,23 +58,28 @@ runs:
         curl -sSL -o "${dir_path}/tfmod.tar.gz" "${url}"
         tar -zxvf "${dir_path}/tfmod.tar.gz" -C "${dir_path}"
         echo "${dir_path}" >> "${GITHUB_PATH}"
+        echo "::endgroup::"
       shell: bash
 
     - name: Run tfmod download
       env:
         BASE_DIR: ${{ inputs.base-dir }}
       run: |
+        echo "::group::Run tfmod download"
         set -x
         tfmod download --format=text --base="${BASE_DIR}"
+        echo "::endgroup::"
       shell: bash
 
     - name: Run tfmod dependent
-      id: tfmod
+      id: dependent
       env:
         BASE_DIR: ${{ inputs.base-dir }}
-        DIFF_FILES: ${{ steps.diff.outputs.files }}
+        DIFF_FILEPATH: ${{ steps.diff.outputs.filepath }}
       run: |
+        echo "::group::Run tfmod dependent"
         set -x
-        dependent="$(tfmod dependent --format=text --base="${BASE_DIR}" --module="${DIFF_FILES}")"
-        echo "dependent=${dependent}" >> "${GITHUB_OUTPUT}"
+        dirs="$(tfmod dependent --format=text --base="${BASE_DIR}" <"${DIFF_FILEPATH}")"
+        echo "dirs=${dirs}" >> "${GITHUB_OUTPUT}"
+        echo "::endgroup::"
       shell: bash
