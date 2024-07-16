@@ -31,10 +31,15 @@ jobs:
         id: exercise
         uses: ./.github/actions/tf-dependency-action/
 
+      - name: Tree
+        run: |
+          set -x
+          tree "${GITHUB_WORKSPACE}"
+
       - name: Run dependent foo
         run: |
           set -x
-          tfmod dependent --format=json --base="${GITHUB_WORKSPACE}" --module="testdata/terraform/module/foo" | jq .
+          tfmod dependent --format=json --base="${GITHUB_WORKSPACE}" --module="testdata/terraform/module/foo" --debug
 
       - name: Run dependent bar
         run: |
