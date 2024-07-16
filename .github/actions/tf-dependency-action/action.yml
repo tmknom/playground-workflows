@@ -52,12 +52,12 @@ runs:
         echo "::group::Install tfmod"
         set -x
         url="${BASE_URL}/${VERSION}/tfmod_Linux_x86_64.tar.gz"
-        dir_path="${RUNNER_TEMP}/tfmod"
+        bin_path="${RUNNER_TEMP}/${GITHUB_ACTION}/bin"
 
-        mkdir -p "${dir_path}"
-        curl -sSL -o "${dir_path}/tfmod.tar.gz" "${url}"
-        tar -zxvf "${dir_path}/tfmod.tar.gz" -C "${dir_path}"
-        echo "${dir_path}" >> "${GITHUB_PATH}"
+        mkdir -p "${bin_path}"
+        curl -sSL -o "${bin_path}/tfmod.tar.gz" "${url}"
+        tar -zxvf "${bin_path}/tfmod.tar.gz" -C "${bin_path}"
+        echo "${bin_path}" >> "${GITHUB_PATH}"
         echo "::endgroup::"
       shell: bash
 
