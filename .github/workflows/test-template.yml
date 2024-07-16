@@ -1,4 +1,4 @@
-name: Test
+name: Test template
 on:
   workflow_dispatch:
   pull_request:
