@@ -67,7 +67,7 @@ runs:
       run: |
         echo "::group::Run tfmod download"
         set -x
-        tfmod download --format=text --base="${BASE_DIR}"
+        tfmod download --format=json --base="${BASE_DIR}" | jq .
         echo "::endgroup::"
       shell: bash
 
