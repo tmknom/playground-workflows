@@ -34,17 +34,17 @@ jobs:
       - name: Run dependent foo
         run: |
           set -x
-          tfmod dependent --format=json --module="${GITHUB_WORKSPACE}/testdata/terraform/module/foo" | jq .
+          tfmod dependent --format=json --base="${GITHUB_WORKSPACE}" --module="testdata/terraform/module/foo" | jq .
 
       - name: Run dependent bar
         run: |
           set -x
-          tfmod dependent --format=json --module="${GITHUB_WORKSPACE}/testdata/terraform/module/bar" | jq .
+          tfmod dependent --format=json --base="${GITHUB_WORKSPACE}" --module="testdata/terraform/module/bar" | jq .
 
       - name: Run dependent baz
         run: |
           set -x
-          tfmod dependent --format=json --module="${GITHUB_WORKSPACE}/testdata/terraform/module/baz" | jq .
+          tfmod dependent --format=json --base="${GITHUB_WORKSPACE}" --module="testdata/terraform/module/baz" | jq .
 
       - name: Run dependent download
         run: |
