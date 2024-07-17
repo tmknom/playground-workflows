@@ -24,25 +24,54 @@ jobs:
     steps:
       - name: Checkout
         uses: tmknom/checkout-action@v1
+        with:
+          fetch-depth: 0
 
-      - name: Setup
+      - name: Tree
         run: |
           set -x
-          echo "Setup"
+          tree "${GITHUB_WORKSPACE}" -d
+
+      - name: Tf dir
+        run: |
+          set -x
+          find "${GITHUB_WORKSPACE}" -maxdepth 5 -name '*.tf' -exec dirname {} \; | sort -u
+
+      - name: Git diff
+        id: diff
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          echo "::group::Git diff"
+          set -x
+          logfile="${RUNNER_TEMP}/git-diff-${GITHUB_ACTION:-${RANDOM}}.log"
+          commits="origin/${DEFAULT_BRANCH}...HEAD"
+          git --no-pager diff "${commits}" --name-only --no-color | xargs dirname | sort -u | tee -a "${logfile}"
+          echo "files=$(tr '\n' ',' <"${logfile}" | sed 's/,$//')" >> "${GITHUB_OUTPUT}"
+          echo "::endgroup::"
 
       - name: Exercise
         id: exercise
-        uses: ./
+        uses: ./.github/actions/tf-dependency-action/
+        with:
+          modules: ${{ steps.diff.outputs.files }}
 
-      - name: Verify
-        env:
-          OUTCOME: ${{ steps.exercise.outcome }}
+      - name: Run dependent download
         run: |
           set -x
-          test "${OUTCOME}" = "success"
+          tfmod download --base="${GITHUB_WORKSPACE}" --format=json --debug | jq .
 
-      - name: Teardown
-        if: ${{ always() }}
+      - name: Run dependent foo
         run: |
           set -x
-          echo "Teardown"
+          tfmod dependent --format=json --base="${GITHUB_WORKSPACE}" --module="testdata/terraform/module/foo" --debug
+
+      - name: Run dependent bar
+        run: |
+          set -x
+          tfmod dependent --format=json --base="${GITHUB_WORKSPACE}" --module="testdata/terraform/module/bar" --debug | jq .
+
+      - name: Run dependent baz
+        run: |
+          set -x
+          tfmod dependent --format=json --base="${GITHUB_WORKSPACE}" --module="testdata/terraform/module/baz" --debug | jq .
