@@ -1,0 +1,52 @@
+name: Release GitHub Releases
+on:
+  workflow_call:
+    inputs:
+      level:
+        type: string
+        required: true
+        description: Bump up to [patch / minor / major]
+
+permissions: {}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: tmknom/checkout-action@v1
+
+      - name: Git Config
+        uses: tmknom/git-config-action@970621c4819d5a601bbac4a2bcf6f5f80d92a2e6 # v0.2.0
+
+      - name: Bump Version
+        id: bump
+        uses: tmknom/bump-version-action@87bed7f224292cab5b46a4cae9897bbf64153f00 # v0.2.1
+        with:
+          bump-level: ${{ inputs.level }}
+
+      - name: Push version tag
+        env:
+          VERSION: ${{ steps.bump.outputs.version }}
+        run: |
+          set -x
+          major="${VERSION%%.*}"
+          git tag --force --message "${VERSION}" "${VERSION}"
+          git tag --force --message "${VERSION}" "${major}"
+          git push --force origin "${VERSION}"
+          git push --force origin "${major}"
+
+      - name: Release
+        env:
+          VERSION: ${{ steps.bump.outputs.version }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -x
+          gh release create "${VERSION}" --title "${VERSION}" --generate-notes
