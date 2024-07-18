@@ -32,16 +32,10 @@ jobs:
         with:
           bump-level: ${{ inputs.level }}
 
-      - name: Push version tag
-        env:
-          VERSION: ${{ steps.bump.outputs.version }}
-        run: |
-          set -x
-          major="${VERSION%%.*}"
-          git tag --force --message "${VERSION}" "${VERSION}"
-          git tag --force --message "${VERSION}" "${major}"
-          git push --force origin "${VERSION}"
-          git push --force origin "${major}"
+      - name: Push Version Tag
+        uses: tmknom/push-version-tag-action@a9d1b46f9c29d3db510771452257b228bfd8a33f # v0.1.1
+        with:
+          version: ${{ steps.bump.outputs.version }}
 
       - name: Release
         env:
