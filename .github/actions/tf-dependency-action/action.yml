@@ -27,7 +27,7 @@ inputs:
     required: false
     description: The base directory that contains the state directories and Terraform modules.
   tfmod-version:
-    default: v0.2.1
+    default: v0.2.2
     required: false
     description: The version of [tfmod](https://github.com/tmknom/tfmod).
 
@@ -63,7 +63,7 @@ runs:
       run: |
         echo "::group::Run tfmod download"
         set -x
-        tfmod download --debug --format=json --base="${BASE_DIR}" | jq .
+        tfmod download --debug --format=text --base="${BASE_DIR}"
         echo "::endgroup::"
       shell: bash
 
@@ -75,7 +75,7 @@ runs:
       run: |
         echo "::group::Run tfmod dependent"
         set -x
-        dirs="$(tfmod dependent --debug --format=json --base="${BASE_DIR}" --module="${MODULES}")"
+        dirs="$(tfmod dependent --debug --format=text --base="${BASE_DIR}" --module="${MODULES}")"
         echo "dirs=${dirs}" >> "${GITHUB_OUTPUT}"
         echo "::endgroup::"
       shell: bash
