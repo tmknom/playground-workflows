@@ -50,7 +50,7 @@ jobs:
 
       - name: Exercise
         id: exercise
-        uses: ./.github/actions/tf-dependency-action/
+        uses: ./
         with:
           modules: "testdata/terraform/module/foo"
 
@@ -105,7 +105,7 @@ jobs:
 
       - name: Exercise
         id: exercise
-        uses: ./.github/actions/tf-dependency-action/
+        uses: ./
 
       - name: Verify
         env:

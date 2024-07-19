@@ -1,23 +1,107 @@
-name: Rename me
+name: Tf dependency
 description: |
-  Test super action.
+  This action discovers the Terraform state directories that use the specified local modules.
+  A "state directory" is where you run `terraform plan` or `terraform apply`.
+  It usually contains the `terraform.tfstate` file.
+
+  For example, if you modify a Terraform local module, you can see which state directories are affected.
+  With this action, you can easily identify relationships in your Terraform configurations,
+  making it easier to manage changes and understand their impacts.
 
   ## Usage
 
-  Write usage for your Composite Action.
-
   ```yaml
     steps:
-      - name: Template
-        uses: tmknom/template-composite-action@v0
+      - name: Tf dependency
+        uses: tmknom/tf-dependency-action@v0
+        with:
+          modules: module/foo,module/bar
   ```
+
+inputs:
+  modules:
+    required: false
+    description: Terraform module directories.
+  base-dir:
+    default: ${{ github.workspace }}
+    required: false
+    description: The base directory that contains the state directories and Terraform modules.
+
+outputs:
+  dirs:
+    value: ${{ steps.dependent.outputs.dirs }}
+    description: The state directories that use the specified modules.
 
 runs:
   using: composite
 
   steps:
-    - name: Run
-      shell: bash
+    - name: Traceable Identifier
+      id: traceable
+      uses: tmknom/traceable-identifier-action@6555160c543eb771a876fb4ceaecd43ec79df7b6 # v0.1.0
+
+    - name: Git diff
+      id: diff
+      if: ${{ inputs.modules == '' }}
+      env:
+        IDENTIFIER: ${{ steps.traceable.outputs.identifier }}
+        DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
       run: |
+        echo "::group::Git diff"
         set -x
-        echo "Write steps"
+        tmpfile="${RUNNER_TEMP}/${GITHUB_ACTION}-${IDENTIFIER}.log"
+        commits="origin/${DEFAULT_BRANCH}...HEAD"
+        git --no-pager diff "${commits}" --name-only --no-color | xargs dirname | sort -u | tee -a "${tmpfile}"
+        echo "dirs=$(tr '\n' ',' <"${tmpfile}" | sed 's/,$//')" >> "${GITHUB_OUTPUT}"
+        echo "::endgroup::"
+      shell: bash
+
+    - name: Get latest tfmod version
+      id: latest
+      run: |
+        echo "::group::Get latest tfmod version"
+        set -x
+        version="$(grep tfmod <"${GITHUB_ACTION_PATH}/go.mod" | cut -d ' ' -f 3)"
+        echo "version=${version}" >> "${GITHUB_OUTPUT}"
+        echo "::endgroup::"
+      shell: bash
+
+    - name: Install tfmod
+      env:
+        VERSION: ${{ steps.latest.outputs.version }}
+        BASE_URL: https://github.com/tmknom/tfmod/releases/download
+      run: |
+        echo "::group::Install tfmod"
+        set -x
+        url="${BASE_URL}/${VERSION}/tfmod_Linux_x86_64.tar.gz"
+        bin_path="${RUNNER_TEMP}/${GITHUB_ACTION}/bin"
+        mkdir -p "${bin_path}"
+
+        curl -sSL -o "${bin_path}/tfmod.tar.gz" "${url}"
+        tar -zxvf "${bin_path}/tfmod.tar.gz" -C "${bin_path}"
+        echo "${bin_path}" >> "${GITHUB_PATH}"
+        echo "::endgroup::"
+      shell: bash
+
+    - name: Run tfmod download
+      env:
+        BASE_DIR: ${{ inputs.base-dir }}
+      run: |
+        echo "::group::Run tfmod download"
+        set -x
+        tfmod download --debug --format=text --base="${BASE_DIR}"
+        echo "::endgroup::"
+      shell: bash
+
+    - name: Run tfmod dependent
+      id: dependent
+      env:
+        BASE_DIR: ${{ inputs.base-dir }}
+        MODULES: ${{ inputs.modules || steps.diff.outputs.dirs }}
+      run: |
+        echo "::group::Run tfmod dependent"
+        set -x
+        dirs="$(tfmod dependent --debug --format=text --base="${BASE_DIR}" --module="${MODULES}")"
+        echo "dirs=${dirs}" >> "${GITHUB_OUTPUT}"
+        echo "::endgroup::"
+      shell: bash
