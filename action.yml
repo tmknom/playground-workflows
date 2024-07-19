@@ -21,11 +21,11 @@ description: |
 inputs:
   modules:
     required: false
-    description: Terraform module directories.
+    description: Paths of files or directories that might be Terraform modules.
   base-dir:
     default: ${{ github.workspace }}
     required: false
-    description: The base directory that contains the state directories and Terraform modules.
+    description: The base directory that contains the state directories and module directories.
 
 outputs:
   dirs:
