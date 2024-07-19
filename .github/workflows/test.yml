@@ -2,7 +2,7 @@ name: Test
 on:
   workflow_dispatch:
   pull_request:
-    paths: ["action.yml", ".github/workflows/test.yml"]
+    paths: ["action.yml", ".github/workflows/test.yml", "go.mod"]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
