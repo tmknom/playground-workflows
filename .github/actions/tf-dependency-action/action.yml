@@ -20,7 +20,7 @@ description: |
 
 inputs:
   modules:
-    required: true
+    required: false
     description: Terraform module directories.
   base-dir:
     default: ${{ github.workspace }}
@@ -36,6 +36,26 @@ runs:
   using: composite
 
   steps:
+    - name: Traceable Identifier
+      id: traceable
+      uses: tmknom/traceable-identifier-action@6555160c543eb771a876fb4ceaecd43ec79df7b6 # v0.1.0
+
+    - name: Git diff
+      id: diff
+      if: ${{ inputs.modules == '' }}
+      env:
+        IDENTIFIER: ${{ steps.traceable.outputs.identifier }}
+        DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      run: |
+        echo "::group::Git diff"
+        set -x
+        tmpfile="${RUNNER_TEMP}/${GITHUB_ACTION}-${IDENTIFIER}.log"
+        commits="origin/${DEFAULT_BRANCH}...HEAD"
+        git --no-pager diff "${commits}" --name-only --no-color | xargs dirname | sort -u | tee -a "${tmpfile}"
+        echo "dirs=$(tr '\n' ',' <"${tmpfile}" | sed 's/,$//')" >> "${GITHUB_OUTPUT}"
+        echo "::endgroup::"
+      shell: bash
+
     - name: Install tfmod
       env:
         VERSION: v0.2.2
@@ -67,7 +87,7 @@ runs:
       id: dependent
       env:
         BASE_DIR: ${{ inputs.base-dir }}
-        MODULES: ${{ inputs.modules }}
+        MODULES: ${{ inputs.modules || steps.diff.outputs.dirs }}
       run: |
         echo "::group::Run tfmod dependent"
         set -x
