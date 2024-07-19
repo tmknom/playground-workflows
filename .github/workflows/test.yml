@@ -24,14 +24,36 @@ jobs:
     steps:
       - name: Checkout
         uses: tmknom/checkout-action@v1
-        with:
-          fetch-depth: 0
+
+      - name: Setup
+        run: |
+          set -x
+          rm -rf testdata
+          module="testdata/terraform/module/foo/main.tf"
+          mkdir -p "$(dirname "${module}")"
+          cat <<EOF >"${module}"
+          resource "terraform_data" "test" {
+            input = "foo"
+          }
+          EOF
+
+          state="testdata/terraform/env/prd/main.tf"
+          mkdir -p "$(dirname "${state}")"
+          cat <<EOF >"${state}"
+          module "foo" {
+            source = "../../module/foo"
+          }
+          module "security-group" {
+            source  = "terraform-aws-modules/security-group/aws"
+            version = "5.1.2"
+          }
+          EOF
 
       - name: Exercise
         id: exercise
         uses: ./.github/actions/tf-dependency-action/
         with:
-          modules: "testdata/terraform/module/bar"
+          modules: "testdata/terraform/module/foo"
 
       - name: Verify
         env:

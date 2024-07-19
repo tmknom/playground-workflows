@@ -1,10 +1,10 @@
 name: Tf dependency
 description: |
-  This action finds the state directories that use the modified Terraform modules.
+  This action discovers the Terraform state directories that use the specified local modules.
   A "state directory" is where you run `terraform plan` or `terraform apply`.
-  It typically stores the `terraform.tfstate` file.
+  It usually contains the `terraform.tfstate` file.
 
-  For example, if you modify a Terraform module, you can see which state directories are affected.
+  For example, if you modify a Terraform local module, you can see which state directories are affected.
   With this action, you can easily identify relationships in your Terraform configurations,
   making it easier to manage changes and understand their impacts.
 
@@ -26,10 +26,6 @@ inputs:
     default: ${{ github.workspace }}
     required: false
     description: The base directory that contains the state directories and Terraform modules.
-  tfmod-version:
-    default: v0.2.2
-    required: false
-    description: The version of [tfmod](https://github.com/tmknom/tfmod).
 
 outputs:
   dirs:
@@ -42,7 +38,7 @@ runs:
   steps:
     - name: Install tfmod
       env:
-        VERSION: ${{ inputs.tfmod-version }}
+        VERSION: v0.2.2
         BASE_URL: https://github.com/tmknom/tfmod/releases/download
       run: |
         echo "::group::Install tfmod"
