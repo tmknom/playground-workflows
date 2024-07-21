@@ -16,8 +16,6 @@ on:
         value: ${{ jobs.cross.outputs.configuration-sha256 }}
         description: SHA256 of the configuration file.
 
-concurrency: ${{ github.workflow }}
-
 permissions: {}
 
 jobs:
