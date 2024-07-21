@@ -24,3 +24,4 @@ jobs:
       bump-level: ${{ inputs.bump-level }}
     permissions:
       contents: write
+      packages: write
