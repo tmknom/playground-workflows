@@ -1,0 +1,62 @@
+name: Release Go
+on:
+  workflow_call:
+    inputs:
+      bump-level:
+        type: string
+        required: true
+        description: Bump up to [patch / minor / major]
+      version-file:
+        type: string
+        default: go.mod
+        required: false
+        description: Path to the version file for Go, such as .go-version, go.mod or go.work.
+    outputs:
+      configuration-sha256:
+        value: ${{ jobs.cross.outputs.configuration-sha256 }}
+        description: SHA256 of the configuration file.
+
+concurrency: ${{ github.workflow }}
+
+permissions: {}
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - name: Checkout
+        uses: tmknom/checkout-action@v1
+
+      - name: Set up Go
+        uses: actions/setup-go@0a12ed9d6a96ab950c8f026ed9f722fe0da7ef32 # v5.0.2
+        with:
+          go-version-file: ${{ inputs.version-file }}
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@0d4c9c5ea7693da7b068278f7b52bda2a190a446 # v3.2.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Bump Version
+        id: bump
+        uses: tmknom/bump-version-action@87bed7f224292cab5b46a4cae9897bbf64153f00 # v0.2.1
+        with:
+          bump-level: ${{ inputs.bump-level }}
+
+      - name: Push Version Tag
+        uses: tmknom/push-version-tag-action@a9d1b46f9c29d3db510771452257b228bfd8a33f # v0.1.1
+        with:
+          version: ${{ steps.bump.outputs.version }}
+
+      - name: Cross GoReleaser
+        id: cross
+        uses: tmknom/cross-goreleaser-action@62ca80e65d689ee60f0a9cadce9187dc642c141a # v0.1.0
+        with:
+          configuration-url: https://raw.githubusercontent.com/tmknom/configurations/feat/add-goreleaser-config/goreleaser/default.yml
+#          configuration-url: https://raw.githubusercontent.com/tmknom/configurations/v0.4.0/goreleaser/default.yml

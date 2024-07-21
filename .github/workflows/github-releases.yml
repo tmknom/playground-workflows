@@ -2,10 +2,10 @@ name: Release GitHub Releases
 on:
   workflow_call:
     inputs:
-      level:
+      bump-level:
         type: string
         required: true
-        description: Bump up to [patch / minor / major]
+        description: Determines which part of the version to increment [patch/minor/major]
 
 permissions: {}
 
@@ -27,12 +27,13 @@ jobs:
         id: bump
         uses: tmknom/bump-version-action@87bed7f224292cab5b46a4cae9897bbf64153f00 # v0.2.1
         with:
-          bump-level: ${{ inputs.level }}
+          bump-level: ${{ inputs.bump-level }}
 
       - name: Push Version Tag
         uses: tmknom/push-version-tag-action@a9d1b46f9c29d3db510771452257b228bfd8a33f # v0.1.1
         with:
           version: ${{ steps.bump.outputs.version }}
+          major: true
 
       - name: Release
         env:
