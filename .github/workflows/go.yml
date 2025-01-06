@@ -54,7 +54,7 @@ jobs:
 
       - name: Cross GoReleaser
         id: cross
-        uses: tmknom/cross-goreleaser-action@f488f85702518d310748f0538d023e0f7990074e # v0.2.0
+        uses: tmknom/cross-goreleaser-action@38567c2b631cff9b71542e2861b52e4e7777418b # v0.2.1
         with:
           configuration-url: https://raw.githubusercontent.com/tmknom/configurations/feat/add-goreleaser-config/goreleaser/default.yml
 #          configuration-url: https://raw.githubusercontent.com/tmknom/configurations/v0.4.0/goreleaser/default.yml
