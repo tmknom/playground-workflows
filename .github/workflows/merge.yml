@@ -9,7 +9,7 @@ permissions: {}
 
 jobs:
   call:
-    uses: tmknom/merge-workflows/.github/workflows/github-actions.yml@feat/add-github-actions-workflow
+    uses: tmknom/merge-workflows/.github/workflows/github-actions.yml@v0
     with:
       pull-request: ${{ github.event.pull_request.number }}
     permissions:
