@@ -1,0 +1,12 @@
+name: JWT
+
+on:
+  workflow_dispatch:
+
+jobs:
+  call:
+    uses: ./.github/workflows/reusable-jwt.yml
+    # uses: tmknom/playground-workflows/.github/workflows/reusable-jwt.yml@087a383ebd6a0b4b27be82fffd6cbde2c50268d6
+    permissions:
+      contents: read
+      id-token: write

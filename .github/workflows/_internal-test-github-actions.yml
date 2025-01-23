@@ -1,0 +1,131 @@
+name: Test for GitHub Actions
+on:
+  workflow_dispatch:
+  pull_request:
+    paths: [".github/workflows/github-actions.yml", ".github/workflows/_internal-test-github-actions.yml"]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions: {}
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  setup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      pull-requests: write
+      id-token: write
+      packages: write
+    outputs:
+      base-branch: ${{ steps.base.outputs.branch }}
+      pr-branch: ${{ steps.pr.outputs.branch }}
+    steps:
+      - name: Checkout default branch
+        uses: tmknom/checkout-action@v1
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+
+      - name: Git Config
+        uses: tmknom/git-config-action@970621c4819d5a601bbac4a2bcf6f5f80d92a2e6 # v0.2.0
+
+      - name: Create base branch
+        id: base
+        run: |
+          set -x
+          branch="pseudo/base/${GITHUB_JOB}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          echo "branch=${branch}" >> "${GITHUB_OUTPUT}"
+          git switch -c "${branch}"
+          git push origin "${branch}"
+
+      - name: Private Generate GitHub Token
+        id: gha
+        uses: tmknom/private-generate-github-token-action@86f118410bc0dfedbb0e4601175cf8a60f21b5d7 # v0.2.0
+        with:
+          repositories: playground-workflows
+
+      - name: Create pull request branch
+        id: pr
+        env:
+          BASE_BRANCH: ${{ steps.base.outputs.branch }}
+          GITHUB_TOKEN: ${{ steps.gha.outputs.token }}
+        run: |
+          set -x
+          branch="pseudo/pr/${GITHUB_JOB}${GITHUB_RUN_ID}${GITHUB_RUN_ATTEMPT}-1.2.3"
+          echo "branch=${branch}" >> "${GITHUB_OUTPUT}"
+          git switch -c "${branch}" "${BASE_BRANCH}"
+          git commit -m "pseudo: bump test/dependency from 1.2.2 to 1.2.3" --allow-empty
+          git push origin "${branch}"
+          gh pr create --base "${BASE_BRANCH}" --head "${branch}" --fill-first
+
+      - name: Revoke GitHub Token
+        if: ${{ always() }}
+        uses: tmknom/revoke-github-token-action@3ab58f0a8cc1f0911d071e243343bc0a003d0d1b # v0.1.0
+        with:
+          token: ${{ steps.gha.outputs.token }}
+
+  exercise:
+    needs: [setup]
+    uses: ./.github/workflows/github-actions.yml
+    with:
+      pull-request: ${{ needs.setup.outputs.pr-branch }}
+      github-actor: ${{ github.repository_owner }}
+      update-type: version-update:semver-patch
+    permissions:
+      contents: write
+      pull-requests: write
+
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [setup, exercise]
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Checkout
+        uses: tmknom/checkout-action@v1
+
+      - name: Verify state
+        env:
+          PR_BRANCH: ${{ needs.setup.outputs.pr-branch }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -x
+          result="$(gh pr view "${PR_BRANCH}" --json state --jq .state)"
+          test "${result}" = "MERGED"
+
+  teardown:
+    if: ${{ always() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [setup, exercise, verify]
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout
+        uses: tmknom/checkout-action@v1
+
+      - name: Close pull request
+        env:
+          PR_BRANCH: ${{ needs.setup.outputs.pr-branch }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -x
+          gh pr close "${PR_BRANCH}" || true
+
+      - name: Delete branches
+        env:
+          BASE_BRANCH: ${{ needs.setup.outputs.base-branch }}
+          PR_BRANCH: ${{ needs.setup.outputs.pr-branch }}
+        run: |
+          set -x
+          git push origin "${PR_BRANCH}" --delete || true
+          git push origin "${BASE_BRANCH}" --delete || true
