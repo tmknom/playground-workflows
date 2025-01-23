@@ -2,7 +2,7 @@ name: Test
 on:
   workflow_dispatch:
   pull_request:
-    paths: ["action.yml", ".github/workflows/test.yml", "go.mod"]
+    paths: ["action.yml", ".github/workflows/test.yml"]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -21,95 +21,18 @@ jobs:
     timeout-minutes: 5
     permissions:
       contents: read
+      id-token: write
     steps:
       - name: Checkout
         uses: tmknom/checkout-action@v1
 
-      - name: Setup
-        run: |
-          set -x
-          module="testdata/terraform/module/foo/main.tf"
-          mkdir -p "$(dirname "${module}")"
-          cat <<EOF >"${module}"
-          resource "terraform_data" "test" {
-            input = "foo"
-          }
-          EOF
-
-          state="testdata/terraform/env/prd/main.tf"
-          mkdir -p "$(dirname "${state}")"
-          cat <<EOF >"${state}"
-          module "foo" {
-            source = "../../module/foo"
-          }
-          module "security-group" {
-            source  = "terraform-aws-modules/security-group/aws"
-            version = "5.1.2"
-          }
-          EOF
-
       - name: Exercise
         id: exercise
-        uses: ./
-        with:
-          modules: "testdata/terraform/module/foo"
+        uses: ./.github/actions/retrieve-oidc-token-action/
 
       - name: Verify
         env:
-          DIRS: ${{ steps.exercise.outputs.dirs }}
+          PAYLOAD: ${{ steps.exercise.outputs.payload }}
         run: |
           set -x
-          test "${DIRS}" = "testdata/terraform/env/prd"
-
-  test-git-diff:
-    name: Test git diff
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      contents: read
-    steps:
-      - name: Checkout
-        uses: tmknom/checkout-action@v1
-        with:
-          fetch-depth: 0
-
-      - name: Git Config
-        uses: tmknom/git-config-action@970621c4819d5a601bbac4a2bcf6f5f80d92a2e6 # v0.2.0
-
-      - name: Setup
-        run: |
-          set -x
-          module="testdata/terraform/module/foo/main.tf"
-          mkdir -p "$(dirname "${module}")"
-          cat <<EOF >"${module}"
-          resource "terraform_data" "test" {
-            input = "foo"
-          }
-          EOF
-
-          state="testdata/terraform/env/prd/main.tf"
-          mkdir -p "$(dirname "${state}")"
-          cat <<EOF >"${state}"
-          module "foo" {
-            source = "../../module/foo"
-          }
-          module "security-group" {
-            source  = "terraform-aws-modules/security-group/aws"
-            version = "5.1.2"
-          }
-          EOF
-
-          git switch -c "test/${GITHUB_JOB}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          git add .
-          git commit -m "test commit"
-
-      - name: Exercise
-        id: exercise
-        uses: ./
-
-      - name: Verify
-        env:
-          DIRS: ${{ steps.exercise.outputs.dirs }}
-        run: |
-          set -x
-          test "${DIRS}" = "testdata/terraform/env/prd"
+          test "$(jq -r '.run_id' <<<"${PAYLOAD}")" = "${GITHUB_RUN_ID}"
