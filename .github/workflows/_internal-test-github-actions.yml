@@ -46,7 +46,7 @@ jobs:
 
       - name: Private Generate GitHub Token
         id: gha
-        uses: tmknom/private-generate-github-token-action@86f118410bc0dfedbb0e4601175cf8a60f21b5d7 # v0.2.0
+        uses: tmknom/private-generate-github-token-action@5c20840eb763bac6f4d140eb31b44a92fb17273d # v0.3.0
         with:
           repositories: playground-workflows
 
