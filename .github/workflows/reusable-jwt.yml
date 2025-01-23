@@ -16,7 +16,7 @@ jobs:
 
       - name: Retrieve OIDC Token
         id: oidc
-        uses: ./.github/actions/retrieve-oidc-token-action/
+        uses: tmknom/retrieve-oidc-token-action@3cb3e701c0941155263f6e7037308c2ef9f1b766 # v0.1.0
 
       - name: Show payload
         env:
