@@ -1,9 +1,11 @@
-name: Merge
+name: Internal Merge
 on:
   pull_request:
     paths: ["action.yml", ".github/workflows/*.yml"]
 
-concurrency: ${{ github.workflow }}
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions: {}
 
