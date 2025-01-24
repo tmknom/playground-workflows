@@ -6,7 +6,7 @@ on:
 jobs:
   call:
     # uses: ./.github/workflows/reusable-jwt.yml
-    uses: tmknom/playground-workflows/.github/workflows/reusable-jwt.yml@3dce5bbde77ff5080b1daf86b9499544d8cb2a37
+    uses: tmknom/playground-workflows/.github/workflows/reusable-jwt.yml@d6cc9b8cb1c8cb5e68306ea5baeb708adb2f9697
     permissions:
       contents: read
       id-token: write
