@@ -21,18 +21,19 @@ jobs:
     timeout-minutes: 5
     permissions:
       contents: read
-      id-token: write
     steps:
       - name: Checkout
         uses: tmknom/checkout-action@v1
+        with:
+          fetch-depth: 100
 
       - name: Exercise
         id: exercise
-        uses: ./.github/actions/retrieve-oidc-token-action/
+        uses: ./
 
       - name: Verify
         env:
-          PAYLOAD: ${{ steps.exercise.outputs.payload }}
+          LEVEL: ${{ steps.exercise.outputs.level }}
         run: |
           set -x
-          test "$(jq -r '.run_id' <<<"${PAYLOAD}")" = "${GITHUB_RUN_ID}"
+          test "${LEVEL}" = "minor"
