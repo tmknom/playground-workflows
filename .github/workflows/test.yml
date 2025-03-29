@@ -21,6 +21,7 @@ jobs:
     timeout-minutes: 5
     permissions:
       contents: read
+      pull-requests: read
     steps:
       - name: Checkout
         uses: tmknom/checkout-action@v1
@@ -33,7 +34,7 @@ jobs:
 
       - name: Verify
         env:
-          LEVEL: ${{ steps.exercise.outputs.level }}
+          BUMP_LEVEL: ${{ steps.exercise.outputs.bump-level }}
         run: |
           set -x
-          test "${LEVEL}" = "minor"
+          test "${BUMP_LEVEL}" = "none"
