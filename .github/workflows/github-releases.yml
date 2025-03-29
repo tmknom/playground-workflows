@@ -22,6 +22,8 @@ jobs:
     steps:
       - name: Checkout
         uses: tmknom/checkout-action@v1
+        with:
+          fetch-depth: 100
 
       - name: PR Label Bump Version
         id: pr-label
