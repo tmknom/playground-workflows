@@ -45,7 +45,7 @@ runs:
         fi
 
         commits="$(git log "${range}" --merges --pretty='format:%s')"
-        numbers="$(grep -oE '#[0-9]+' <<<"${commits}" | sed 's/#//g' | sort -u | tr '\n' ' ' || true)"
+        numbers="$(grep -oE '#[0-9]+' <<<"${commits}" | sed 's/#//g' | sort -u | tr '\n' ' ' | sed 's/[[:space:]]\+$//' || true)"
         echo "pull-requests=${numbers}" >> "${GITHUB_OUTPUT}"
         echo "::endgroup::"
       shell: bash
