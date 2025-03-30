@@ -11,6 +11,11 @@ description: |
         uses: tmknom/determine-version-level-action@v0
   ```
 
+inputs:
+  revision-range:
+    required: false
+    description: Filters only pull requests in the specified revision range.
+
 outputs:
   bump-level:
     value: ${{ steps.determine.outputs.level || 'none' }}
@@ -22,6 +27,7 @@ runs:
   steps:
     - name: Git tag version
       id: tag
+      if: ${{ inputs.revision-range == '' }}
       run: |
         echo "::group::Git tag version"
         set -x
@@ -31,20 +37,36 @@ runs:
         echo "::endgroup::"
       shell: bash
 
-    - name: Filter pull requests
-      id: filter
+    - name: Generate revision range
+      id: generate
       env:
         CURRENT_VERSION: ${{ steps.tag.outputs.version }}
         DEFAULT_BRANCH: origin/${{ github.event.repository.default_branch }}
+        REVISION_RANGE: ${{ inputs.revision-range }}
       run: |
-        echo "::group::Filter pull requests"
+        echo "::group::Generate revision range"
         set -x
+        if [[ "${REVISION_RANGE}" != "" ]]; then
+          echo "range=${REVISION_RANGE}" >> "${GITHUB_OUTPUT}"
+          exit 0
+        fi
+
         range="${DEFAULT_BRANCH}"
         if [[ "${CURRENT_VERSION}" != "" ]]; then
           range="${CURRENT_VERSION}..${DEFAULT_BRANCH}"
         fi
+        echo "range=${range}" >> "${GITHUB_OUTPUT}"
+        echo "::endgroup::"
+      shell: bash
 
-        commits="$(git log "${range}" --merges --pretty='format:%s')"
+    - name: Filter pull requests
+      id: filter
+      env:
+        RANGE: ${{ steps.generate.outputs.range }}
+      run: |
+        echo "::group::Filter pull requests"
+        set -x
+        commits="$(git log "${RANGE}" --merges --pretty='format:%s')"
         numbers="$(grep -oE '#[0-9]+' <<<"${commits}" | sed 's/#//g' | sort -u | tr '\n' ' ' | sed 's/[[:space:]]\+$//' || true)"
         echo "pull-requests=${numbers}" >> "${GITHUB_OUTPUT}"
         echo "::endgroup::"
