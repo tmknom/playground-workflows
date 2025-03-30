@@ -28,7 +28,8 @@ jobs:
       - name: Determine Version Level
         id: determine
         if: ${{ inputs.bump-level == 'auto' }}
-        uses: tmknom/determine-version-level-action@ca30855e2a5046c5098eea8c423eeddd80da2e46 # v0.1.0
+        uses: ./
+        # uses: tmknom/determine-version-level-action@ca30855e2a5046c5098eea8c423eeddd80da2e46 # v0.1.0
 
       - name: Bump Version
         id: bump
