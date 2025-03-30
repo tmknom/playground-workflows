@@ -14,7 +14,7 @@ description: |
 inputs:
   revision-range:
     required: false
-    description: Filters only pull requests in the specified revision range.
+    description: Git revision range (e.g., v1.0.0..main) used to filter merged pull requests.
 
 outputs:
   bump-level:

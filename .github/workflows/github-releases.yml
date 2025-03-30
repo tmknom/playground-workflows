@@ -29,7 +29,7 @@ jobs:
         id: determine
         if: ${{ inputs.bump-level == 'auto' }}
         uses: ./
-        # uses: tmknom/determine-version-level-action@ca30855e2a5046c5098eea8c423eeddd80da2e46 # v0.1.0
+        # uses: tmknom/determine-version-level-action@1b9d61694b6707e10ff5a38a2acd1ad411078fab # v0.2.0
 
       - name: Bump Version
         id: bump
