@@ -81,9 +81,15 @@ runs:
       run: |
         echo "::group::Determine version level"
         set -x
+        labels=""
         IFS=$' ' read -ra prs <<<"${PULL_REQUESTS}"
-        query="$(printf ' OR %s' "${prs[@]}")"
-        labels="$(gh pr list --search "${query:4}" --limit 100 --state merged --json labels --jq '.[].labels[].name' | sort -u)"
+        for pr in "${prs[@]}"; do
+          labels+="$(gh pr view "${pr}" --json labels --jq '.labels[].name')"
+          labels+=$'\n'
+        done
+
+        labels="$(sort -u <<<"${labels}")"
+        echo "${labels}"
 
         if grep -Eqx "enhancement" <<<"${labels}"; then
           level="minor"
