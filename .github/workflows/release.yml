@@ -19,9 +19,10 @@ permissions: {}
 
 jobs:
   call:
-    uses: tmknom/release-workflows/.github/workflows/go.yml@main
+    uses: ./.github/workflows/go.yml
     with:
       bump-level: ${{ inputs.bump-level }}
+      homebrew-tap-repository: homebrew-test-tap
     permissions:
       contents: write
       packages: write
