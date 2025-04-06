@@ -1,4 +1,4 @@
-name: Release yamllint
+name: Release prettier
 on:
   workflow_dispatch:
     inputs:
@@ -9,7 +9,7 @@ on:
         options:
           - 'true'
           - 'false'
-        default: 'false'
+        default: 'true'
 
 concurrency: ${{ github.workflow }}
 
@@ -29,15 +29,15 @@ jobs:
         id: extract
         run: |
           set -x
-          version="$(cut -d '=' -f 3 "test-yamllint/requirements.txt")"
+          version="$(jq -r ".dependencies.prettier" test/package.json)"
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
 
   release:
     needs: [extract]
     uses: ./.github/workflows/reusable-release.yml
     with:
-      name: test-yamllint
-      description: Dockernized test-yamllint, it's a linter for YAML files.
+      name: test
+      description: Dockernized test, it's a linter for YAML files.
       version: ${{ needs.extract.outputs.version }}
       push: ${{ inputs.push }}
     secrets:
