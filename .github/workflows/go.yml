@@ -166,7 +166,7 @@ jobs:
 
       - name: Publish release
         env:
-          FOOTER_FILE: ${{ steps.footer.outputs.release-note }}
+          FOOTER_FILE: ${{ steps.footer.outputs.release-note-path }}
           VERSION_TAG: ${{ steps.bump.outputs.version }}
           GITHUB_TOKEN: ${{ github.token }}
         run: |
