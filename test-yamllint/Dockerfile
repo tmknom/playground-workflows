@@ -1,6 +1,6 @@
-ARG PYTHON_VERSION=3.11
+ARG PYTHON_VERSION=3.13
 
-FROM python:${PYTHON_VERSION}-alpine3.15
+FROM python:${PYTHON_VERSION}-alpine3.20
 
 # Setup nonroot user
 RUN set -x && \
