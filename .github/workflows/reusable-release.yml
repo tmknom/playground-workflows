@@ -53,7 +53,6 @@ jobs:
           BASE_URL: ${{ github.server_url }}/${{ github.repository }}
         with:
           images: |
-            ${{ github.repository_owner }}/${{ inputs.name }}
             ghcr.io/${{ github.repository }}/${{ inputs.name }}
           tags: |
             type=semver,pattern={{version}},value=v${{ inputs.version }}
@@ -65,6 +64,7 @@ jobs:
             org.opencontainers.image.documentation=${{ env.BASE_URL }}/blob/main/${{ inputs.name }}/README.md
             org.opencontainers.image.authors=[${{ github.repository_owner }}](${{ github.server_url }}/${{ github.repository_owner }})
 
+      # ${{ github.repository_owner }}/${{ inputs.name }}
       # - name: Login to Docker Hub
       #   uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
       #   if: ${{ inputs.push == 'true' }}
