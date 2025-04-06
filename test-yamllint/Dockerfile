@@ -8,7 +8,7 @@ RUN set -x && \
     adduser -G nonroot -s /bin/sh -D nonroot
 
 # Install tools
-ENV ENTRYPOINT yamllint
+ENV ENTRYPOINT="yamllint"
 USER nonroot
 WORKDIR /home/nonroot
 COPY --chown=nonroot:nonroot requirements.txt .
@@ -18,6 +18,6 @@ RUN set -x && \
 
 # Configure runtime
 WORKDIR /work
-ENV PATH "/home/nonroot/.local/bin:${PATH}"
-ENV PYTHONPATH "/home/nonroot/.local/lib/python${PYTHON_VERSION}/site-packages"
+ENV PATH="/home/nonroot/.local/bin:${PATH}"
+ENV PYTHONPATH="/home/nonroot/.local/lib/python${PYTHON_VERSION}/site-packages"
 ENTRYPOINT ["/home/nonroot/entrypoint.sh"]

@@ -28,6 +28,7 @@ jobs:
       - name: Extract version
         id: extract
         run: |
+          set -x
           version="$(cut -d '=' -f 3 "test-yamllint/requirements.txt")"
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
 
