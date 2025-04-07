@@ -36,6 +36,8 @@ jobs:
     permissions:
       contents: read
       packages: write
+    outputs:
+      digest: ${{ steps.push.outputs.digest }}
     steps:
       - name: Checkout
         uses: tmknom/checkout-action@v1
@@ -81,6 +83,7 @@ jobs:
           password: ${{ github.token }}
 
       - name: Build and Push
+        id: push
         uses: docker/build-push-action@471d1dc4e07e5cdedd4c2171150001c434f0b7a4 # v6.15.0
         with:
           context: ${{ inputs.name }}/
@@ -90,3 +93,66 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           platforms: linux/amd64,linux/arm64
+
+  sign:
+    if: ${{ inputs.push == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [push]
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    steps:
+      - name: Checkout
+        uses: tmknom/checkout-action@v1
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@d7d6bc7722e3daa8354c50bcb52f4837da5e9b6a # v3.8.1
+
+      - name: Generate metadata
+        id: metadata
+        env:
+          ARTIFACTS: ${{ steps.goreleaser.outputs.artifacts }}
+        run: |
+          set -x
+          manifest_digest="$(jq -r '. | map(select(.type=="Docker Manifest"))[0] | .extra.Digest' <<<"${ARTIFACTS}")"
+          echo "manifest-digest=${manifest_digest}" >> "${GITHUB_OUTPUT}"
+
+      - name: Attest container images
+        uses: actions/attest-build-provenance@c074443f1aee8d4aeeae555aebba3282517141b2 # v2.2.3
+        with:
+          subject-name: ghcr.io/${{ github.repository }}/test-release # TODO
+          subject-digest: ${{ steps.metadata.outputs.manifest-digest }} # TODO
+          push-to-registry: true
+
+      - name: Sign
+        env:
+          IMAGE_DIGEST: ${{ steps.push.outputs.digest }} # TODO
+          IMAGE_REPOSITORY: ${{ steps.image.outputs.repository }} # TODO
+        run: |
+          set -x
+          cosign sign \
+            --oidc-issuer=https://token.actions.githubusercontent.com \
+            --oidc-provider=github-actions \
+            --yes \
+            "${IMAGE_REPOSITORY}@${IMAGE_DIGEST}"
+
+      - name: Retrieve OIDC Token
+        id: oidc
+        uses: tmknom/retrieve-oidc-token-action@4c373152cedf7f42b1e496e245236449d8d57121 # v0.2.1
+
+      - name: Verify by Cosign
+        env:
+          IMAGE_DIGEST: ${{ steps.push.outputs.digest }}
+          IMAGE_REPOSITORY: ${{ steps.image.outputs.repository }}
+          JOB_WORKFLOW_REF: ${{ steps.oidc.outputs.job_workflow_ref }}
+        run: |
+          set -x
+          cosign verify \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            --certificate-identity "${GITHUB_SERVER_URL}/${JOB_WORKFLOW_REF}" \
+            --certificate-github-workflow-repository "${GITHUB_REPOSITORY}" \
+            --certificate-github-workflow-sha "${GITHUB_SHA}" \
+            "${IMAGE_REPOSITORY}@${IMAGE_DIGEST}"

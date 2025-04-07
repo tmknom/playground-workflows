@@ -1,8 +1,8 @@
-name: Test prettier
+name: Test markdownlint
 on:
   workflow_dispatch:
   pull_request:
-    paths: ["prettier/*", ".github/workflows/test-prettier.yml"]
+    paths: ["markdownlint/*", ".github/workflows/test-markdownlint.yml"]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -28,12 +28,12 @@ jobs:
       - name: Setup
         run: |
           set -x
-          docker build -t local/sut prettier/
+          docker build -t local/sut markdownlint/
 
-          cat <<EOF > test.yml
-          ---
-          name: valid
-          description: This is a valid basic yaml file.
+          cat <<EOF > test.md
+          # valid
+
+          This is a valid basic markdown file.
           EOF
 
       - name: Exercise
@@ -43,7 +43,7 @@ jobs:
           docker run --interactive --rm --read-only --user nonroot:nonroot \
             --security-opt no-new-privileges --cap-drop all --network none \
             --volume "${PWD}:${PWD}" --workdir "${PWD}" \
-            local/sut --check --parser=yaml test.yml
+            local/sut test.md
         continue-on-error: true
 
       - name: Verify
@@ -66,13 +66,12 @@ jobs:
       - name: Setup
         run: |
           set -x
-          docker build -t local/sut prettier/
+          docker build -t local/sut markdownlint/
 
-          cat <<EOF > test.yml
-          ---
-          name: invalid
-          description:  |
-            This is an invalid basic yaml file.
+          cat <<EOF > test.md
+          # invalid
+
+          This sentence is too long. So, markdownlint will occurs 'MD013/line-length Line length' error.
           EOF
 
       - name: Exercise
@@ -82,7 +81,7 @@ jobs:
           docker run --interactive --rm --read-only --user nonroot:nonroot \
             --security-opt no-new-privileges --cap-drop all --network none \
             --volume "${PWD}:${PWD}" --workdir "${PWD}" \
-            local/sut --check --parser=yaml test.yml
+            local/sut test.md
         continue-on-error: true
 
       - name: Verify

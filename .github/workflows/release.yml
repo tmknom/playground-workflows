@@ -29,15 +29,15 @@ jobs:
         id: extract
         run: |
           set -x
-          version="$(jq -r ".dependencies.prettier" test/package.json)"
+          version="$(jq -r ".dependencies.prettier" prettier/package.json)"
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
 
   release:
     needs: [extract]
     uses: ./.github/workflows/reusable-release.yml
     with:
-      name: test
-      description: Dockernized test, it's a linter for YAML files.
+      name: prettier
+      description: Dockernized prettier, it's an opinionated code formatter..
       version: ${{ needs.extract.outputs.version }}
       push: ${{ inputs.push }}
     secrets:
