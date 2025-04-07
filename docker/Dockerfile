@@ -1,0 +1,1 @@
+FROM rhysd/actionlint@sha256:e3856d413f923accc4120884ff79f6bdba3dd53fd42884d325f21af61cc15ce0 # 1.7.6
