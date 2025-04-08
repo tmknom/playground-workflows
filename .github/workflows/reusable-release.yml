@@ -159,7 +159,7 @@ jobs:
       - name: Attest for Docker Hub
         uses: actions/attest-build-provenance@c074443f1aee8d4aeeae555aebba3282517141b2 # v2.2.3
         with:
-          subject-name: ${{ needs.push.outputs.docker-hub-image }}
+          subject-name: index.docker.io/${{ needs.push.outputs.docker-hub-image }}
           subject-digest: ${{ needs.push.outputs.digest }}
           push-to-registry: true
 
