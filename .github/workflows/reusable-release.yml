@@ -180,6 +180,7 @@ jobs:
           GHCR_IMAGE: ${{ needs.push.outputs.ghcr-image }}
           IMAGE_DIGEST: ${{ needs.push.outputs.digest }}
           JOB_WORKFLOW_REF: ${{ steps.oidc.outputs.job_workflow_ref }}
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -x
           cosign verify \
