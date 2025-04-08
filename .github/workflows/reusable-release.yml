@@ -140,12 +140,14 @@ jobs:
           IMAGE_DIGEST: ${{ needs.push.outputs.digest }}
         run: |
           set -x
+          docker pull "${DOCKER_HUB_IMAGE}@${IMAGE_DIGEST}"
           cosign sign \
             --oidc-issuer=https://token.actions.githubusercontent.com \
             --oidc-provider=github-actions \
             --yes \
             "${DOCKER_HUB_IMAGE}@${IMAGE_DIGEST}"
 
+          docker pull "${GHCR_IMAGE}@${IMAGE_DIGEST}"
           cosign sign \
             --oidc-issuer=https://token.actions.githubusercontent.com \
             --oidc-provider=github-actions \
