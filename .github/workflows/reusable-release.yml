@@ -37,6 +37,8 @@ jobs:
       contents: read
       packages: write
     outputs:
+      docker-hub-image: ${{ steps.image.outputs.docker-hub }}
+      ghcr-image: ${{ steps.image.outputs.ghcr }}
       digest: ${{ steps.push.outputs.digest }}
     steps:
       - name: Checkout
@@ -48,6 +50,15 @@ jobs:
       - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.10.0
 
+      - name: Generate image name
+        id: image
+        env:
+          NAME: ${{ inputs.name }}
+        run: |
+          set -x
+          echo "docker-hub=${GITHUB_REPOSITORY_OWNER}/${NAME}" >> "${GITHUB_OUTPUT}"
+          echo "ghcr=ghcr.io/${GITHUB_REPOSITORY}/${NAME}" >> "${GITHUB_OUTPUT}"
+
       - name: Docker metadata
         id: meta
         uses: docker/metadata-action@902fa8ec7d6ecbf8d84d538b9b233a880e428804 # v5.7.0
@@ -55,8 +66,8 @@ jobs:
           BASE_URL: ${{ github.server_url }}/${{ github.repository }}
         with:
           images: |
-            ${{ github.repository }}/${{ inputs.name }}
-            ghcr.io/${{ github.repository }}/${{ inputs.name }}
+            ${{ steps.image.outputs.docker-hub }}
+            ${{ steps.image.outputs.ghcr }}
           tags: |
             type=semver,pattern={{version}},value=v${{ inputs.version }}
           labels: |
@@ -124,19 +135,10 @@ jobs:
           username: ${{ github.repository_owner }}
           password: ${{ github.token }}
 
-      - name: Generate image name
-        id: image
-        env:
-          NAME: ${{ inputs.name }}
-        run: |
-          set -x
-          echo "docker-hub=${GITHUB_REPOSITORY}/${NAME}" >> "${GITHUB_OUTPUT}"
-          echo "ghcr=ghcr.io/${GITHUB_REPOSITORY}/${NAME}" >> "${GITHUB_OUTPUT}"
-
       - name: Sign
         env:
-          DOCKER_HUB_IMAGE: ${{ steps.image.outputs.docker-hub }}
-          GHCR_IMAGE: ${{ steps.image.outputs.ghcr }}
+          DOCKER_HUB_IMAGE: ${{ needs.push.outputs.docker-hub-image }}
+          GHCR_IMAGE: ${{ needs.push.outputs.ghcr-image }}
           IMAGE_DIGEST: ${{ needs.push.outputs.digest }}
         run: |
           set -x
@@ -157,14 +159,14 @@ jobs:
       - name: Attest for Docker Hub
         uses: actions/attest-build-provenance@c074443f1aee8d4aeeae555aebba3282517141b2 # v2.2.3
         with:
-          subject-name: ${{ steps.image.outputs.docker-hub }}
+          subject-name: ${{ needs.push.outputs.docker-hub-image }}
           subject-digest: ${{ needs.push.outputs.digest }}
           push-to-registry: true
 
       - name: Attest for GitHub Container Registry
         uses: actions/attest-build-provenance@c074443f1aee8d4aeeae555aebba3282517141b2 # v2.2.3
         with:
-          subject-name: ${{ steps.image.outputs.ghcr }}
+          subject-name: ${{ needs.push.outputs.ghcr-image }}
           subject-digest: ${{ needs.push.outputs.digest }}
           push-to-registry: true
 
@@ -174,8 +176,8 @@ jobs:
 
       - name: Verify
         env:
-          DOCKER_HUB_IMAGE: ${{ steps.image.outputs.docker-hub }}
-          GHCR_IMAGE: ${{ steps.image.outputs.ghcr }}
+          DOCKER_HUB_IMAGE: ${{ needs.push.outputs.docker-hub-image }}
+          GHCR_IMAGE: ${{ needs.push.outputs.ghcr-image }}
           IMAGE_DIGEST: ${{ needs.push.outputs.digest }}
           JOB_WORKFLOW_REF: ${{ steps.oidc.outputs.job_workflow_ref }}
         run: |
