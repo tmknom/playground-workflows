@@ -42,10 +42,10 @@ jobs:
       - name: Checkout
         uses: tmknom/checkout-action@v1
 
-      - name: Set up QEMU
+      - name: Setup QEMU
         uses: docker/setup-qemu-action@29109295f81e9208d7d86ff1c6c12d2833863392 # v3.6.0
 
-      - name: Set up Docker Buildx
+      - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.10.0
 
       - name: Docker metadata
@@ -111,42 +111,57 @@ jobs:
       - name: Install Cosign
         uses: sigstore/cosign-installer@d7d6bc7722e3daa8354c50bcb52f4837da5e9b6a # v3.8.1
 
-      - name: Generate metadata
-        id: metadata
+      - name: Generate image name
+        id: image
         env:
-          ARTIFACTS: ${{ steps.goreleaser.outputs.artifacts }}
+          NAME: ${{ inputs.name }}
         run: |
           set -x
-          manifest_digest="$(jq -r '. | map(select(.type=="Docker Manifest"))[0] | .extra.Digest' <<<"${ARTIFACTS}")"
-          echo "manifest-digest=${manifest_digest}" >> "${GITHUB_OUTPUT}"
-
-      - name: Attest container images
-        uses: actions/attest-build-provenance@c074443f1aee8d4aeeae555aebba3282517141b2 # v2.2.3
-        with:
-          subject-name: ghcr.io/${{ github.repository }}/test-release # TODO
-          subject-digest: ${{ steps.metadata.outputs.manifest-digest }} # TODO
-          push-to-registry: true
+          echo "docker-hub=${GITHUB_REPOSITORY}/${NAME}" >> "${GITHUB_OUTPUT}"
+          echo "ghcr=ghcr.io/${GITHUB_REPOSITORY}/${NAME}" >> "${GITHUB_OUTPUT}"
 
       - name: Sign
         env:
-          IMAGE_DIGEST: ${{ steps.push.outputs.digest }} # TODO
-          IMAGE_REPOSITORY: ${{ steps.image.outputs.repository }} # TODO
+          DOCKER_HUB_IMAGE: ${{ steps.image.outputs.docker-hub }}
+          GHCR_IMAGE: ${{ steps.image.outputs.ghcr }}
+          IMAGE_DIGEST: ${{ needs.push.outputs.digest }}
         run: |
           set -x
           cosign sign \
             --oidc-issuer=https://token.actions.githubusercontent.com \
             --oidc-provider=github-actions \
             --yes \
-            "${IMAGE_REPOSITORY}@${IMAGE_DIGEST}"
+            "${DOCKER_HUB_IMAGE}@${IMAGE_DIGEST}"
+
+          cosign sign \
+            --oidc-issuer=https://token.actions.githubusercontent.com \
+            --oidc-provider=github-actions \
+            --yes \
+            "${GHCR_IMAGE}@${IMAGE_DIGEST}"
+
+      - name: Attest for Docker Hub
+        uses: actions/attest-build-provenance@c074443f1aee8d4aeeae555aebba3282517141b2 # v2.2.3
+        with:
+          subject-name: ${{ steps.image.outputs.docker-hub }}
+          subject-digest: ${{ needs.push.outputs.digest }}
+          push-to-registry: true
+
+      - name: Attest for GitHub Container Registry
+        uses: actions/attest-build-provenance@c074443f1aee8d4aeeae555aebba3282517141b2 # v2.2.3
+        with:
+          subject-name: ${{ steps.image.outputs.ghcr }}
+          subject-digest: ${{ needs.push.outputs.digest }}
+          push-to-registry: true
 
       - name: Retrieve OIDC Token
         id: oidc
         uses: tmknom/retrieve-oidc-token-action@4c373152cedf7f42b1e496e245236449d8d57121 # v0.2.1
 
-      - name: Verify by Cosign
+      - name: Verify
         env:
-          IMAGE_DIGEST: ${{ steps.push.outputs.digest }}
-          IMAGE_REPOSITORY: ${{ steps.image.outputs.repository }}
+          DOCKER_HUB_IMAGE: ${{ steps.image.outputs.docker-hub }}
+          GHCR_IMAGE: ${{ steps.image.outputs.ghcr }}
+          IMAGE_DIGEST: ${{ needs.push.outputs.digest }}
           JOB_WORKFLOW_REF: ${{ steps.oidc.outputs.job_workflow_ref }}
         run: |
           set -x
@@ -155,4 +170,23 @@ jobs:
             --certificate-identity "${GITHUB_SERVER_URL}/${JOB_WORKFLOW_REF}" \
             --certificate-github-workflow-repository "${GITHUB_REPOSITORY}" \
             --certificate-github-workflow-sha "${GITHUB_SHA}" \
-            "${IMAGE_REPOSITORY}@${IMAGE_DIGEST}"
+            "${DOCKER_HUB_IMAGE}@${IMAGE_DIGEST}"
+
+          cosign verify \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            --certificate-identity "${GITHUB_SERVER_URL}/${JOB_WORKFLOW_REF}" \
+            --certificate-github-workflow-repository "${GITHUB_REPOSITORY}" \
+            --certificate-github-workflow-sha "${GITHUB_SHA}" \
+            "${GHCR_IMAGE}@${IMAGE_DIGEST}"
+
+          gh attestation verify "oci://${DOCKER_HUB_IMAGE}@${IMAGE_DIGEST}" \
+            --deny-self-hosted-runners \
+            --repo "${GITHUB_REPOSITORY}" \
+            --cert-oidc-issuer "https://token.actions.githubusercontent.com" \
+            --cert-identity "${GITHUB_SERVER_URL}/${JOB_WORKFLOW_REF}"
+
+          gh attestation verify "oci://${GHCR_IMAGE}@${IMAGE_DIGEST}" \
+            --deny-self-hosted-runners \
+            --repo "${GITHUB_REPOSITORY}" \
+            --cert-oidc-issuer "https://token.actions.githubusercontent.com" \
+            --cert-identity "${GITHUB_SERVER_URL}/${JOB_WORKFLOW_REF}"
