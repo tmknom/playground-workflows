@@ -55,7 +55,7 @@ jobs:
           BASE_URL: ${{ github.server_url }}/${{ github.repository }}
         with:
           images: |
-            ${{ github.repository_owner }}/${{ inputs.name }}
+            ${{ github.repository }}/${{ inputs.name }}
             ghcr.io/${{ github.repository }}/${{ inputs.name }}
           tags: |
             type=semver,pattern={{version}},value=v${{ inputs.version }}
