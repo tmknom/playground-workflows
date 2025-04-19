@@ -214,6 +214,7 @@ jobs:
     needs: [push, sign]
     permissions:
       contents: write
+      packages: read
       id-token: write
       pull-requests: write
     steps:
