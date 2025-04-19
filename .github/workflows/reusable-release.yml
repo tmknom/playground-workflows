@@ -269,14 +269,19 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
         run: |
           set -x
-          gh_attestation_path="${RUNNER_TEMP}/gh_attestation.log"
-          echo "path=${gh_attestation_path}" >> "${GITHUB_OUTPUT}"
+          gh_attestation_path="${RUNNER_TEMP}/gh-attestation.log"
+          gh_attestation_trimmed_path="${RUNNER_TEMP}/gh-attestation-trimmed.log"
+          echo "path=${gh_attestation_trimmed_path}" >> "${GITHUB_OUTPUT}"
 
           gh attestation verify "oci://${GHCR_IMAGE}@${IMAGE_DIGEST}" \
             --deny-self-hosted-runners \
             --repo "${GITHUB_REPOSITORY}" \
             --cert-oidc-issuer "https://token.actions.githubusercontent.com" \
-            --cert-identity "${GITHUB_SERVER_URL}/${JOB_WORKFLOW_REF}" > "${gh_attestation_path}"
+            --cert-identity "${GITHUB_SERVER_URL}/${JOB_WORKFLOW_REF}" > "${gh_attestation_path}" 2>&1
+
+          head -2 "${gh_attestation_path}" > "${gh_attestation_trimmed_path}"
+          echo "✓ Verification succeeded!" >> "${gh_attestation_trimmed_path}"
+          echo "..." >> "${gh_attestation_trimmed_path}"
 
       - name: Generate docs
         id: docs
