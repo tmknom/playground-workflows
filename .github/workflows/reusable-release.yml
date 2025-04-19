@@ -224,6 +224,47 @@ jobs:
         id: oidc
         uses: tmknom/retrieve-oidc-token-action@4c373152cedf7f42b1e496e245236449d8d57121 # v0.2.1
 
+      - name: Cosign log verification
+        id: cosign
+        env:
+          GHCR_IMAGE: ${{ needs.push.outputs.ghcr-image }}
+          IMAGE_DIGEST: ${{ needs.push.outputs.digest }}
+          JOB_WORKFLOW_REF: ${{ steps.oidc.outputs.job_workflow_ref }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -x
+          cosign_path="${RUNNER_TEMP}/cosign.log"
+          cosign_trimmed_path="${RUNNER_TEMP}/cosign-trimmed.log"
+          echo "path=${cosign_trimmed_path}" >> "${GITHUB_OUTPUT}"
+
+          cosign verify \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
+            --certificate-identity "${GITHUB_SERVER_URL}/${JOB_WORKFLOW_REF}" \
+            --certificate-github-workflow-repository "${GITHUB_REPOSITORY}" \
+            --certificate-github-workflow-sha "${GITHUB_SHA}" \
+            "${GHCR_IMAGE}@${IMAGE_DIGEST}" > "${cosign_path}" 2>&1
+
+          sed '/^\[{/q' "${cosign_path}" > "${cosign_trimmed_path}"
+          json_line="$(grep '^\[{' "${cosign_path}" | cut -c 1-100)"
+          echo "${json_line}..." >> "${cosign_trimmed_path}"
+
+      - name: GitHub Artifact Attestations log verification
+        id: attestation
+        env:
+          GHCR_IMAGE: ${{ needs.push.outputs.ghcr-image }}
+          IMAGE_DIGEST: ${{ needs.push.outputs.digest }}
+          JOB_WORKFLOW_REF: ${{ steps.oidc.outputs.job_workflow_ref }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -x
+          gh_attestation_path="${RUNNER_TEMP}/gh_attestation.log"
+          echo "path=${gh_attestation_path}" >> "${GITHUB_OUTPUT}"
+          gh attestation verify "oci://${GHCR_IMAGE}@${IMAGE_DIGEST}" \
+            --deny-self-hosted-runners \
+            --repo "${GITHUB_REPOSITORY}" \
+            --cert-oidc-issuer "https://token.actions.githubusercontent.com" \
+            --cert-identity "${GITHUB_SERVER_URL}/${JOB_WORKFLOW_REF}" > "${gh_attestation_path}" 2>&1
+
       - name: Generate docs
         id: docs
         env:
@@ -234,10 +275,17 @@ jobs:
           IMAGE_DIGEST: ${{ needs.push.outputs.digest }}
           CERTIFICATE_IDENTITY: ${{ github.server_url }}/${{ steps.oidc.outputs.job_workflow_ref }}
           CERTIFICATE_OIDC_ISSUER: https://token.actions.githubusercontent.com
+          COSIGN_LOG_PATH: ${{ steps.cosign.outputs.path }}
+          GH_ATTESTATION_LOG_PATH: ${{ steps.attestation.outputs.path }}
         run: |
           set -x
           filepath="${NAME}/installation.md"
           echo "path=${filepath}" >> "${GITHUB_OUTPUT}"
+
+          COSIGN_VERIFY_SUCCEEDED="$(cat "${COSIGN_LOG_PATH}")"
+          GH_ATTESTATION_SUCCEEDED="$(cat "${GH_ATTESTATION_LOG_PATH}")"
+          export COSIGN_VERIFY_SUCCEEDED
+          export GH_ATTESTATION_SUCCEEDED
           envsubst < ".github/template.md" > "${filepath}"
 
       - name: Git Push
