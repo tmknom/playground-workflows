@@ -298,6 +298,7 @@ jobs:
           export COSIGN_VERIFY_SUCCEEDED
           export GH_ATTESTATION_SUCCEEDED
           envsubst < ".github/template.md" > "${filepath}"
+          cat "${filepath}" >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Git Push
         id: push
