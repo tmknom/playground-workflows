@@ -206,3 +206,59 @@ jobs:
             --repo "${GITHUB_REPOSITORY}" \
             --cert-oidc-issuer "https://token.actions.githubusercontent.com" \
             --cert-identity "${GITHUB_SERVER_URL}/${JOB_WORKFLOW_REF}"
+
+  docs:
+    if: ${{ inputs.push == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [push, sign]
+    permissions:
+      contents: write
+      id-token: write
+      pull-requests: write
+    steps:
+      - name: Checkout
+        uses: tmknom/checkout-action@v1
+
+      - name: Retrieve OIDC Token
+        id: oidc
+        uses: tmknom/retrieve-oidc-token-action@4c373152cedf7f42b1e496e245236449d8d57121 # v0.2.1
+
+      - name: Generate docs
+        id: docs
+        env:
+          NAME: ${{ inputs.name }}
+          VERSION: v${{ inputs.version }}
+          DOCKER_HUB_IMAGE: ${{ needs.push.outputs.docker-hub-image }}
+          GHCR_IMAGE: ${{ needs.push.outputs.ghcr-image }}
+          IMAGE_DIGEST: ${{ needs.push.outputs.digest }}
+          CERTIFICATE_IDENTITY: ${{ github.server_url }}/${{ steps.oidc.outputs.job_workflow_ref }}
+          CERTIFICATE_OIDC_ISSUER: https://token.actions.githubusercontent.com
+        run: |
+          set -x
+          filepath="${NAME}/installation.md"
+          echo "path=${filepath}" >> "${GITHUB_OUTPUT}"
+          envsubst < ".github/template.md" > "${filepath}"
+
+      - name: Git Push
+        id: push
+        uses: tmknom/git-push-action@d88b186c540e4179bbb8e228b9c09e1a45677be7 # v0.2.1
+        with:
+          message: 'docs: update installation document for ${{ inputs.name }}'
+
+      - name: Create PR
+        if: ${{ steps.push.outputs.pushed == 'true' }}
+        env:
+          PR_BRANCH: ${{ steps.push.outputs.branch }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -x
+          gh pr create --base "${DEFAULT_BRANCH}" --head "${PR_BRANCH}" --fill-first
+          sleep 1
+
+      - name: Merge PR
+        if: ${{ steps.push.outputs.pushed == 'true' }}
+        uses: tmknom/merge-pr-action@857c5b4c314243e3ca49288468e062b82060078a # v0.3.0
+        with:
+          pull-request: ${{ steps.push.outputs.branch }}
