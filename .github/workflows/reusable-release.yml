@@ -228,7 +228,7 @@ jobs:
         id: docs
         env:
           NAME: ${{ inputs.name }}
-          VERSION: v${{ inputs.version }}
+          VERSION: ${{ inputs.version }}
           DOCKER_HUB_IMAGE: ${{ needs.push.outputs.docker-hub-image }}
           GHCR_IMAGE: ${{ needs.push.outputs.ghcr-image }}
           IMAGE_DIGEST: ${{ needs.push.outputs.digest }}
@@ -255,7 +255,6 @@ jobs:
         run: |
           set -x
           gh pr create --base "${DEFAULT_BRANCH}" --head "${PR_BRANCH}" --fill-first
-          sleep 1
 
       - name: Merge PR
         if: ${{ steps.push.outputs.pushed == 'true' }}
