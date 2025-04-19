@@ -43,7 +43,8 @@ jobs:
     secrets:
       dockerhub-token: ${{ secrets.DOCKERHUB_TOKEN }}
     permissions:
-      contents: read
+      contents: write
       packages: write
       id-token: write
       attestations: write
+      pull-requests: write
