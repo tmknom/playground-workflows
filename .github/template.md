@@ -96,7 +96,9 @@ cosign verify \
 
 <details>
 <summary>Example output: verification succeeded</summary>
+```shell
 ${COSIGN_VERIFY_SUCCEEDED}
+```
 </details>
 
 ### GitHub Artifact Attestations
@@ -126,7 +128,9 @@ gh attestation verify oci://${GHCR_IMAGE}@${IMAGE_DIGEST} \
 
 <details>
 <summary>Example output: verification succeeded</summary>
+```shell
 ${GH_ATTESTATION_SUCCEEDED}
+```
 </details>
 
 [docker_hub]: https://hub.docker.com/r/${GITHUB_REPOSITORY_OWNER}/${NAME}
