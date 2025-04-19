@@ -96,6 +96,7 @@ cosign verify \
 
 <details>
 <summary>Example output: verification succeeded</summary>
+
 ```shell
 ${COSIGN_VERIFY_SUCCEEDED}
 ```
@@ -128,6 +129,7 @@ gh attestation verify oci://${GHCR_IMAGE}@${IMAGE_DIGEST} \
 
 <details>
 <summary>Example output: verification succeeded</summary>
+
 ```shell
 ${GH_ATTESTATION_SUCCEEDED}
 ```
