@@ -262,6 +262,7 @@ jobs:
       - name: GitHub Artifact Attestations log verification
         id: attestation
         env:
+          GH_FORCE_TTY: 1 # https://github.com/cli/cli/issues/10047
           GHCR_IMAGE: ${{ needs.push.outputs.ghcr-image }}
           IMAGE_DIGEST: ${{ needs.push.outputs.digest }}
           JOB_WORKFLOW_REF: ${{ steps.oidc.outputs.job_workflow_ref }}
@@ -270,6 +271,7 @@ jobs:
           set -x
           gh_attestation_path="${RUNNER_TEMP}/gh_attestation.log"
           echo "path=${gh_attestation_path}" >> "${GITHUB_OUTPUT}"
+
           gh attestation verify "oci://${GHCR_IMAGE}@${IMAGE_DIGEST}" \
             --deny-self-hosted-runners \
             --repo "${GITHUB_REPOSITORY}" \
