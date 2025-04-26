@@ -1,5 +1,5 @@
--include .makefiles/reusable-workflows/Makefile
-.makefiles/reusable-workflows/Makefile:
+-include .makefiles/test/Makefile
+.makefiles/test/Makefile:
 	@git clone https://github.com/tmknom/makefiles.git .makefiles >/dev/null 2>&1
 
 .PHONY: docs
