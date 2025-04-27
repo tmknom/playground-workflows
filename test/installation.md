@@ -31,13 +31,13 @@ docker pull ghcr.io/tmknom/playground-workflows/test:latest
 **Docker Hub:**
 
 ```shell
-docker pull tmknom/test:3.2.0
+docker pull tmknom/test:3.2.1
 ```
 
 **GitHub Container Registry:**
 
 ```shell
-docker pull ghcr.io/tmknom/playground-workflows/test:3.2.0
+docker pull ghcr.io/tmknom/playground-workflows/test:3.2.1
 ```
 
 ### Specify digest
@@ -45,13 +45,13 @@ docker pull ghcr.io/tmknom/playground-workflows/test:3.2.0
 **Docker Hub:**
 
 ```shell
-docker pull tmknom/test@sha256:196384075b338264902fe283ae5cbeada15b64c213e0b72bd5c5d5ad9b2cb9b6
+docker pull tmknom/test@sha256:b5e8aeb27a057ec89741ecc73859d6c6ec4acd5a8782c970549a109dfbef7eb7
 ```
 
 **GitHub Container Registry:**
 
 ```shell
-docker pull ghcr.io/tmknom/playground-workflows/test@sha256:196384075b338264902fe283ae5cbeada15b64c213e0b72bd5c5d5ad9b2cb9b6
+docker pull ghcr.io/tmknom/playground-workflows/test@sha256:b5e8aeb27a057ec89741ecc73859d6c6ec4acd5a8782c970549a109dfbef7eb7
 ```
 
 > [!TIP]
@@ -79,8 +79,8 @@ cosign verify \
   --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
   --certificate-identity "https://github.com/tmknom/playground-workflows/.github/workflows/reusable-release.yml@refs/heads/main" \
   --certificate-github-workflow-repository "tmknom/playground-workflows" \
-  --certificate-github-workflow-sha "b564b5b2121e0fde7ca9fc54e73ddb688ddbadc7" \
-  tmknom/test@sha256:196384075b338264902fe283ae5cbeada15b64c213e0b72bd5c5d5ad9b2cb9b6
+  --certificate-github-workflow-sha "f23bda54788030f9f5fd9fe8ffe58c313c583e2d" \
+  tmknom/test@sha256:b5e8aeb27a057ec89741ecc73859d6c6ec4acd5a8782c970549a109dfbef7eb7
 ```
 
 **GitHub Container Registry:**
@@ -90,8 +90,8 @@ cosign verify \
   --certificate-oidc-issuer "https://token.actions.githubusercontent.com" \
   --certificate-identity "https://github.com/tmknom/playground-workflows/.github/workflows/reusable-release.yml@refs/heads/main" \
   --certificate-github-workflow-repository "tmknom/playground-workflows" \
-  --certificate-github-workflow-sha "b564b5b2121e0fde7ca9fc54e73ddb688ddbadc7" \
-  ghcr.io/tmknom/playground-workflows/test@sha256:196384075b338264902fe283ae5cbeada15b64c213e0b72bd5c5d5ad9b2cb9b6
+  --certificate-github-workflow-sha "f23bda54788030f9f5fd9fe8ffe58c313c583e2d" \
+  ghcr.io/tmknom/playground-workflows/test@sha256:b5e8aeb27a057ec89741ecc73859d6c6ec4acd5a8782c970549a109dfbef7eb7
 ```
 
 <details>
@@ -99,7 +99,7 @@ cosign verify \
 
 ```shell
 
-Verification for ghcr.io/tmknom/playground-workflows/test@sha256:196384075b338264902fe283ae5cbeada15b64c213e0b72bd5c5d5ad9b2cb9b6 --
+Verification for ghcr.io/tmknom/playground-workflows/test@sha256:b5e8aeb27a057ec89741ecc73859d6c6ec4acd5a8782c970549a109dfbef7eb7 --
 The following checks were performed on each of these signatures:
   - The cosign claims were validated
   - Existence of the claims in the transparency log was verified offline
@@ -117,7 +117,7 @@ GitHub Artifact Attestations allows you to confirm that the image was built by a
 **Docker Hub:**
 
 ```shell
-gh attestation verify oci://tmknom/test@sha256:196384075b338264902fe283ae5cbeada15b64c213e0b72bd5c5d5ad9b2cb9b6 \
+gh attestation verify oci://tmknom/test@sha256:b5e8aeb27a057ec89741ecc73859d6c6ec4acd5a8782c970549a109dfbef7eb7 \
   --deny-self-hosted-runners \
   --repo "tmknom/playground-workflows" \
   --cert-oidc-issuer "https://token.actions.githubusercontent.com" \
@@ -127,7 +127,7 @@ gh attestation verify oci://tmknom/test@sha256:196384075b338264902fe283ae5cbeada
 **GitHub Container Registry:**
 
 ```shell
-gh attestation verify oci://ghcr.io/tmknom/playground-workflows/test@sha256:196384075b338264902fe283ae5cbeada15b64c213e0b72bd5c5d5ad9b2cb9b6 \
+gh attestation verify oci://ghcr.io/tmknom/playground-workflows/test@sha256:b5e8aeb27a057ec89741ecc73859d6c6ec4acd5a8782c970549a109dfbef7eb7 \
   --deny-self-hosted-runners \
   --repo "tmknom/playground-workflows" \
   --cert-oidc-issuer "https://token.actions.githubusercontent.com" \
@@ -138,7 +138,7 @@ gh attestation verify oci://ghcr.io/tmknom/playground-workflows/test@sha256:1963
 <summary>Example output: verification succeeded</summary>
 
 ```shell
-Loaded digest sha256:196384075b338264902fe283ae5cbeada15b64c213e0b72bd5c5d5ad9b2cb9b6 for oci://ghcr.io/tmknom/playground-workflows/test@sha256:196384075b338264902fe283ae5cbeada15b64c213e0b72bd5c5d5ad9b2cb9b6
+Loaded digest sha256:b5e8aeb27a057ec89741ecc73859d6c6ec4acd5a8782c970549a109dfbef7eb7 for oci://ghcr.io/tmknom/playground-workflows/test@sha256:b5e8aeb27a057ec89741ecc73859d6c6ec4acd5a8782c970549a109dfbef7eb7
 Loaded 2 attestations from GitHub API
 ✓ Verification succeeded!
 ...
