@@ -318,7 +318,7 @@ jobs:
 
       - name: Create Pull Request
         if: ${{ steps.push.outputs.pushed == 'true' }}
-        uses: tmknom/create-pull-request-action@v0
+        uses: tmknom/create-pull-request-action@7568b72a4ec0bea56d0df3415bc838531f9d8909 # v0.1.0
         with:
           head-branch: ${{ steps.push.outputs.branch }}
           title: ${{ steps.push.outputs.subject }}
