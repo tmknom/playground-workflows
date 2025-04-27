@@ -311,7 +311,7 @@ jobs:
 
       - name: Git Push
         id: push
-        uses: tmknom/git-push-action@600da3868b2ab03e581b51e02405adceeabeda31 # v0.4.0
+        uses: tmknom/git-push-action@35e575c65fe25a9a1d405506aef867aa0aa9aad2 # v0.5.0
         with:
           message: 'docs: update installation document for ${{ inputs.name }}'
           paths: ${{ steps.docs.outputs.path }}
