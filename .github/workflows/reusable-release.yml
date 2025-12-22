@@ -155,14 +155,14 @@ jobs:
             "${GHCR_IMAGE}@${IMAGE_DIGEST}"
 
       - name: Attest for Docker Hub
-        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        uses: actions/attest-build-provenance@00014ed6ed5efc5b1ab7f7f34a39eb55d41aa4f8 # v3.1.0
         with:
           subject-name: index.docker.io/${{ needs.push.outputs.docker-hub-image }}
           subject-digest: ${{ needs.push.outputs.digest }}
           push-to-registry: true
 
       - name: Attest for GitHub Container Registry
-        uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
+        uses: actions/attest-build-provenance@00014ed6ed5efc5b1ab7f7f34a39eb55d41aa4f8 # v3.1.0
         with:
           subject-name: ${{ needs.push.outputs.ghcr-image }}
           subject-digest: ${{ needs.push.outputs.digest }}
