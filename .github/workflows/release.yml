@@ -15,7 +15,7 @@ on:
 
 permissions: {}
 
-# 同じ版を 2 つの実行が計算しないよう、実行を重ねない
+# 同じバージョンを 2 つの実行が計算しないよう、実行を重ねない
 concurrency:
   group: release
   cancel-in-progress: false
@@ -236,6 +236,7 @@ jobs:
           gh attestation verify "${PACKAGE_NAME}" \
             --repo "${GITHUB_REPOSITORY}" \
             --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/release-build.yml" \
+            --signer-digest "${GITHUB_SHA}" \
             --source-ref refs/heads/main \
             --source-digest "${GITHUB_SHA}" \
             --deny-self-hosted-runners

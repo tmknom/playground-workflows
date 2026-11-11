@@ -23,7 +23,7 @@ defaults:
 jobs:
   build:
     if: ${{ github.ref == 'refs/heads/main' && github.actor_id == github.repository_owner_id && github.triggering_actor == github.repository_owner }}
-    # zip の実装が変わると zip のバイト列が変わり得るため、版を固定したラベルを使う
+    # zip の実装が変わると zip のバイト列が変わり得るため、バージョンを固定したラベルを使う
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -43,7 +43,7 @@ jobs:
           go-version-file: go.mod
           cache: false
 
-      # 同じコミットと同じ版の Go からは、同じバイト列の zip ができる。
+      # 同じコミットと同じバージョンの Go からは、同じバイト列の zip ができる。
       # 利用者が配布物を再現するときは、リリースのタグを checkout したリポジトリのルートで、この env と run をそのまま実行する。
       # そのため run には ${{ }} の式を書かない
       - name: Build
@@ -68,7 +68,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Go の版が違うとバイト列が変わるため、go.mod の go の行と一致しなければ失敗する
+          # Go のバージョンが違うとバイト列が変わるため、go.mod の go の行と一致しなければ失敗する
           want="go$(go list -m -f '{{.GoVersion}}')"
           got="$(go env GOVERSION)"
           if [[ "${got}" != "${want}" ]]; then
@@ -123,12 +123,14 @@ jobs:
     if: ${{ github.ref == 'refs/heads/main' && github.actor_id == github.repository_owner_id && github.triggering_actor == github.repository_owner }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    # artifact-metadata: write は、レジストリに push するときの storage record にだけ要るため与えない
     permissions:
       id-token: write
       attestations: write
     steps:
+      # predicate を渡さないと、SLSA Build Provenance の Attestation を作る
       - name: Attest build provenance
-        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-name: ${{ needs.build.outputs.package-name }}
           subject-digest: ${{ needs.build.outputs.package-digest }}
