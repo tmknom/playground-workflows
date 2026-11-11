@@ -1,4 +1,4 @@
-name: Release Build
+name: Reusable Build
 on:
   workflow_call:
     outputs:
@@ -22,8 +22,7 @@ defaults:
 # 利用者は Attestation の署名者がこの Reusable Workflow であることを確かめ、呼び出し側が渡した任意の digest への署名と区別する
 jobs:
   build:
-    if: ${{ github.ref == 'refs/heads/main' && github.actor_id == github.repository_owner_id && github.triggering_actor == github.repository_owner }}
-    # zip の実装が変わると zip のバイト列が変わり得るため、バージョンを固定したラベルを使う
+    # zip の実装が変わると zip のバイト列が変わり得るため、OS のバージョンを固定したラベルを使う
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -43,9 +42,7 @@ jobs:
           go-version-file: go.mod
           cache: false
 
-      # 同じコミットと同じバージョンの Go からは、同じバイト列の zip ができる。
-      # 利用者が配布物を再現するときは、リリースのタグを checkout したリポジトリのルートで、この env と run をそのまま実行する。
-      # そのため run には ${{ }} の式を書かない
+      # 同じコミットと同じバージョンの Go からは、同じバイト列の zip ができる
       - name: Build
         id: build
         env:
@@ -103,10 +100,8 @@ jobs:
           sha256sum "${PACKAGE}" > SHA256SUMS
           cat SHA256SUMS
           read -r hex _ < SHA256SUMS
-          if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
-            echo "package-name=${PACKAGE}" >> "${GITHUB_OUTPUT}"
-            echo "package-digest=sha256:${hex}" >> "${GITHUB_OUTPUT}"
-          fi
+          echo "package-name=${PACKAGE}" >> "${GITHUB_OUTPUT}"
+          echo "package-digest=sha256:${hex}" >> "${GITHUB_OUTPUT}"
 
       - name: Upload
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -120,7 +115,6 @@ jobs:
 
   attest:
     needs: [build]
-    if: ${{ github.ref == 'refs/heads/main' && github.actor_id == github.repository_owner_id && github.triggering_actor == github.repository_owner }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     # artifact-metadata: write は、レジストリに push するときの storage record にだけ要るため与えない
