@@ -240,7 +240,7 @@ jobs:
           gh attestation verify "${PACKAGE_NAME}" \
             --repo "${GITHUB_REPOSITORY}" \
             --signer-workflow "${SIGNER_WORKFLOW}" \
-            --source-ref refs/heads/main \
+            --source-ref refs/heads/broken \
             --source-digest "${GITHUB_SHA}" \
             --deny-self-hosted-runners
 
