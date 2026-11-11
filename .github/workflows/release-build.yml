@@ -1,0 +1,100 @@
+name: Release Build
+on:
+  workflow_call:
+    outputs:
+      artifact-name:
+        description: The name of the artifact that contains the package and SHA256SUMS.
+        value: ${{ jobs.build.outputs.artifact-name }}
+      package-name:
+        description: The file name of the package.
+        value: ${{ jobs.build.outputs.package-name }}
+      package-digest:
+        description: The digest of the package, in the form of sha256:<hex>.
+        value: ${{ jobs.build.outputs.package-digest }}
+
+permissions: {}
+
+defaults:
+  run:
+    shell: bash
+
+# ビルドと Attestation を同じ Reusable Workflow で行う。
+# 利用者は Attestation の署名者がこの Reusable Workflow であることを確かめ、呼び出し側が渡した任意の digest への署名と区別する
+jobs:
+  build:
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      github.actor_id == github.repository_owner_id &&
+      github.triggering_actor == github.repository_owner
+    # zip の実装が変わると zip のバイト列が変わり得るため、版を固定したラベルを使う
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    outputs:
+      artifact-name: ${{ steps.digest.outputs.artifact-name }}
+      package-name: ${{ steps.digest.outputs.package-name }}
+      package-digest: ${{ steps.digest.outputs.package-digest }}
+    steps:
+      - name: Checkout
+        uses: tmknom/secure-checkout-action@62ba66cf8cf2c3f4e78fecc96c5d402445d29dd4 # v1.1.0
+
+      # キャッシュは同じリポジトリのほかのワークフローも書き込めるため使わない
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Build
+        run: |
+          set -euo pipefail
+          scripts/release/build.sh "${RUNNER_TEMP}/release"
+
+      - name: Read digest
+        id: digest
+        run: |
+          set -euo pipefail
+          mapfile -t lines < "${RUNNER_TEMP}/release/SHA256SUMS"
+          if [[ "${#lines[@]}" -ne 1 ]]; then
+            echo "::error::SHA256SUMS must have exactly one line"
+            exit 1
+          fi
+          read -r hex name <<< "${lines[0]}"
+          if [[ ! "${hex}" =~ ^[0-9a-f]{64}$ || ! "${name}" =~ ^[A-Za-z0-9._-]+$ ]]; then
+            echo "::error::SHA256SUMS is malformed"
+            exit 1
+          fi
+          {
+            echo "artifact-name=release-package"
+            echo "package-name=${name}"
+            echo "package-digest=sha256:${hex}"
+          } >> "${GITHUB_OUTPUT}"
+
+      - name: Upload
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ steps.digest.outputs.artifact-name }}
+          path: |
+            ${{ runner.temp }}/release/${{ steps.digest.outputs.package-name }}
+            ${{ runner.temp }}/release/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 1
+
+  attest:
+    needs: [build]
+    if: >-
+      github.ref == 'refs/heads/main' &&
+      github.actor_id == github.repository_owner_id &&
+      github.triggering_actor == github.repository_owner
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      id-token: write
+      attestations: write
+    steps:
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ needs.build.outputs.package-name }}
+          subject-digest: ${{ needs.build.outputs.package-digest }}
