@@ -28,10 +28,7 @@ defaults:
 # 各ジョブの if は誤った起動を防ぐためのもので、改ざんへの備えは利用者による Attestation の検証にある
 jobs:
   test:
-    if: >-
-      github.ref == 'refs/heads/main' &&
-      github.actor_id == github.repository_owner_id &&
-      github.triggering_actor == github.repository_owner
+    if: ${{ github.ref == 'refs/heads/main' && github.actor_id == github.repository_owner_id && github.triggering_actor == github.repository_owner }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
@@ -62,10 +59,7 @@ jobs:
           done
 
   version:
-    if: >-
-      github.ref == 'refs/heads/main' &&
-      github.actor_id == github.repository_owner_id &&
-      github.triggering_actor == github.repository_owner
+    if: ${{ github.ref == 'refs/heads/main' && github.actor_id == github.repository_owner_id && github.triggering_actor == github.repository_owner }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
@@ -161,34 +155,21 @@ jobs:
 
   build:
     needs: [test, version]
-    if: >-
-      github.ref == 'refs/heads/main' &&
-      github.actor_id == github.repository_owner_id &&
-      github.triggering_actor == github.repository_owner
+    if: ${{ github.ref == 'refs/heads/main' && github.actor_id == github.repository_owner_id && github.triggering_actor == github.repository_owner }}
     uses: ./.github/workflows/release-build.yml
     permissions:
       contents: read
       id-token: write
       attestations: write
 
+  # 各ステップの env には、そのステップが使う値だけを置き、GH_TOKEN は gh を呼ぶステップにだけ渡す
   release:
     needs: [version, build]
-    if: >-
-      github.ref == 'refs/heads/main' &&
-      github.actor_id == github.repository_owner_id &&
-      github.triggering_actor == github.repository_owner
+    if: ${{ github.ref == 'refs/heads/main' && github.actor_id == github.repository_owner_id && github.triggering_actor == github.repository_owner }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: write
-    env:
-      VERSION: ${{ needs.version.outputs.version }}
-      PACKAGE_NAME: ${{ needs.build.outputs.package-name }}
-      PACKAGE_DIGEST: ${{ needs.build.outputs.package-digest }}
-      SIGNER_WORKFLOW: ${{ github.repository }}/.github/workflows/release-build.yml
-      REMOTE_URL: ${{ github.server_url }}/${{ github.repository }}.git
-      GH_REPO: ${{ github.repository }}
-      GH_TOKEN: ${{ github.token }}
     steps:
       - name: Download
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -198,6 +179,9 @@ jobs:
 
       - name: Verify artifact
         working-directory: ${{ runner.temp }}/artifact
+        env:
+          PACKAGE_NAME: ${{ needs.build.outputs.package-name }}
+          PACKAGE_DIGEST: ${{ needs.build.outputs.package-digest }}
         run: |
           set -euo pipefail
           sha256sum -c SHA256SUMS
@@ -209,9 +193,12 @@ jobs:
 
       # 同じタグ名の draft が残っていると、タグ名で指定する gh release の操作がどの draft を指すか定まらない
       - name: Check no release for version
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          ids="$(gh api --paginate "repos/${GH_REPO}/releases" --jq '.[] | select(.tag_name == env.VERSION) | .id')"
+          ids="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/releases" --jq '.[] | select(.tag_name == env.VERSION) | .id')"
           if [[ -n "${ids}" ]]; then
             echo "::error::A release for ${VERSION} already exists. Delete it if it is a draft left by a failed run"
             exit 1
@@ -220,16 +207,25 @@ jobs:
       # draft の時点ではタグは作られない
       - name: Create draft release
         working-directory: ${{ runner.temp }}/artifact
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+          PACKAGE_NAME: ${{ needs.build.outputs.package-name }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          gh release create "${VERSION}" --draft --target "${GITHUB_SHA}" --title "${VERSION}" --generate-notes \
-            "${PACKAGE_NAME}" SHA256SUMS
+          gh release create "${VERSION}" --repo "${GITHUB_REPOSITORY}" --draft --target "${GITHUB_SHA}" \
+            --title "${VERSION}" --generate-notes "${PACKAGE_NAME}" SHA256SUMS
 
       - name: Verify draft release
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+          PACKAGE_NAME: ${{ needs.build.outputs.package-name }}
+          PACKAGE_DIGEST: ${{ needs.build.outputs.package-digest }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           dir="${RUNNER_TEMP}/draft"
-          gh release download "${VERSION}" --dir "${dir}"
+          gh release download "${VERSION}" --repo "${GITHUB_REPOSITORY}" --dir "${dir}"
           cd "${dir}"
           sha256sum -c SHA256SUMS
           read -r hex _ < <(sha256sum "${PACKAGE_NAME}")
@@ -239,27 +235,32 @@ jobs:
           fi
           gh attestation verify "${PACKAGE_NAME}" \
             --repo "${GITHUB_REPOSITORY}" \
-            --signer-workflow "${SIGNER_WORKFLOW}" \
+            --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/release-build.yml" \
             --source-ref refs/heads/main \
             --source-digest "${GITHUB_SHA}" \
             --deny-self-hosted-runners
 
       # 公開の直前にもタグがないことを確かめ、公開のときにタグを GITHUB_SHA に作らせる
       - name: Publish release
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           status=0
-          git ls-remote --exit-code --tags "${REMOTE_URL}" "refs/tags/${VERSION}" || status=$?
+          git ls-remote --exit-code --tags "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git" "refs/tags/${VERSION}" || status=$?
           if [[ "${status}" -ne 2 ]]; then
             echo "::error::The tag ${VERSION} already exists, or the remote tags could not be read"
             exit 1
           fi
-          gh release edit "${VERSION}" --draft=false
+          gh release edit "${VERSION}" --repo "${GITHUB_REPOSITORY}" --draft=false
 
       - name: Check tag
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
         run: |
           set -euo pipefail
-          ref="$(git ls-remote --tags "${REMOTE_URL}" "refs/tags/${VERSION}")"
+          ref="$(git ls-remote --tags "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}.git" "refs/tags/${VERSION}")"
           sha="${ref%%[[:space:]]*}"
           if [[ "${sha}" != "${GITHUB_SHA}" ]]; then
             echo "::error::The tag ${VERSION} points to ${sha:-nothing}, not ${GITHUB_SHA}"
