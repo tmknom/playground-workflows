@@ -24,8 +24,9 @@ defaults:
   run:
     shell: bash
 
-# 取り消せない処理ほど後に置く。公開より前に失敗したときは、draft のリリースだけが残る。
-# 各ジョブの if は誤った起動を防ぐためのもので、改ざんへの備えは利用者による Attestation の検証にある
+# 取り消せない処理ほど後に置く。
+# test ジョブの if は誤った起動を防ぐためのもので、後続のジョブは needs で test に連なるため一緒に skip される。
+# 改ざんへの備えは利用者による Attestation の検証にある
 jobs:
   test:
     if: ${{ github.ref == 'refs/heads/main' && github.actor_id == github.repository_owner_id && github.triggering_actor == github.repository_owner }}
@@ -98,10 +99,10 @@ jobs:
 
   # 各ステップの env には、そのステップが使う値だけを置き、GH_TOKEN は gh を呼ぶステップにだけ渡す
   release:
-    needs: [build]
+    needs: [version, build]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
-    # attestations: read は、draft の検証で gh attestation verify が Attestation を取得するのに要る
+    # attestations: read は、公開の前後の検証で gh attestation verify が Attestation を取得するのに要る
     permissions:
       contents: write
       attestations: read
