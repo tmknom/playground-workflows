@@ -116,7 +116,6 @@ jobs:
       - name: Verify artifact
         working-directory: ${{ runner.temp }}/artifact
         env:
-          VERSION: ${{ needs.version.outputs.version }}
           PACKAGE_NAME: ${{ needs.build.outputs.package-name }}
           PACKAGE_DIGEST: ${{ needs.build.outputs.package-digest }}
           GH_TOKEN: ${{ github.token }}
