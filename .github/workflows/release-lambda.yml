@@ -35,7 +35,9 @@ jobs:
       contents: read
     steps:
       - name: Checkout
-        uses: tmknom/secure-checkout-action@62ba66cf8cf2c3f4e78fecc96c5d402445d29dd4 # v1.1.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -70,8 +72,9 @@ jobs:
     steps:
       # 前回のタグからマージされた PR を探すため、すべての履歴とタグを取得する
       - name: Checkout
-        uses: tmknom/secure-checkout-action@62ba66cf8cf2c3f4e78fecc96c5d402445d29dd4 # v1.1.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          persist-credentials: false
           fetch-depth: 0
 
       - name: Determine Version Level
@@ -126,7 +129,7 @@ jobs:
           fi
           gh attestation verify "${PACKAGE_NAME}" \
             --repo "${GITHUB_REPOSITORY}" \
-            --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/reusable-build.yml" \
+            --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/reusable-build-lambda.yml" \
             --signer-digest "${GITHUB_SHA}" \
             --source-ref refs/heads/main \
             --source-digest "${GITHUB_SHA}" \
@@ -162,7 +165,7 @@ jobs:
           fi
           gh attestation verify "${PACKAGE_NAME}" \
             --repo "${GITHUB_REPOSITORY}" \
-            --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/reusable-build.yml" \
+            --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/reusable-build-lambda.yml" \
             --signer-digest "${GITHUB_SHA}" \
             --source-ref refs/heads/main \
             --source-digest "${GITHUB_SHA}" \

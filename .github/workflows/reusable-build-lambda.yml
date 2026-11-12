@@ -33,7 +33,9 @@ jobs:
       package-digest: ${{ steps.build.outputs.package-digest }}
     steps:
       - name: Checkout
-        uses: tmknom/secure-checkout-action@62ba66cf8cf2c3f4e78fecc96c5d402445d29dd4 # v1.1.0
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       # キャッシュは同じリポジトリのほかのワークフローも書き込めるため使わない
       - name: Set up Go
