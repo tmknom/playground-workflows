@@ -195,14 +195,16 @@ GHCR にはログインせず、匿名で取得します。
 
 受け取った成果物を検証してから、GitHub Release を公開します。
 
-1. `sha256sum -c SHA256SUMS` で照合する
-2. 配布アーカイブ 6 件のそれぞれで `gh attestation verify` を実行する。期待値は、リポジトリ、署名したワークフロー（`release-go-cli.yml`）、`--signer-digest` と `--source-digest` に `GITHUB_SHA`、`--source-ref` に `GITHUB_REF` である
+1. `SHA256SUMS` に列挙されたファイル名が、タグのバージョンを含む期待どおりの 6 件と一致することを確かめ、`sha256sum -c SHA256SUMS` で照合する
+2. 配布アーカイブ 6 件のそれぞれで `gh attestation verify` を実行する。期待値は、リポジトリ、署名したワークフロー（`release-go-cli.yml`）、`--signer-digest` と `--source-digest` に `GITHUB_SHA`、`--source-ref` に `GITHUB_REF` である。`gh attestation verify` はファイルの digest だけで Attestation を探すため、`--format json` の出力から、ファイル名と digest の組が署名された subject に含まれることも確かめる
 3. container の出力した digest が `sha256:<64 桁の 16 進数>` の形であることを確かめる
 4. `ghcr.io/tmknom/playground-workflows@sha256:<digest>` を1行で書いた `container-image.txt` を作る
 5. `gh release create <タグ> --verify-tag --target <GITHUB_SHA> --title <タグ> --generate-notes` で公開する。資産として登録するのは、`SHA256SUMS` に列挙されたアーカイブ、`SHA256SUMS`、`container-image.txt` だけである。列挙が 6 件でなければ公開しない
 
 `SHA256SUMS` との照合だけでは、アーカイブと `SHA256SUMS` が一緒に差し替えられた場合を検出できません。
-署名の検証を加えることで、公開するアーカイブが attest の署名したものと同じであることを確かめます。
+署名の検証を加えることで、公開するアーカイブが、このワークフローによって同じコミットとタグで署名されたものであることを確かめます。
+検証は実行 ID までは照合しないため、同じコミットとタグで実行した過去の実行の署名も受け入れます。
+subject の名前を確かめるのは、署名されたアーカイブ同士で中身を入れ替えても digest の照合だけでは検出できないためです。
 
 登録するファイルをディレクトリの中身すべてにしないのは、受け渡す Artifact の対象が将来広がったときに、照合も署名もしていないファイルが黙って公開されるのを防ぐためです。
 

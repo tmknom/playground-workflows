@@ -354,8 +354,10 @@ jobs:
     if: ${{ github.actor_id == github.repository_owner_id && github.triggering_actor == github.repository_owner }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
+    # attestations: read は、gh attestation verify が GitHub の Attestation API から取得するのに要る
     permissions:
       contents: write
+      attestations: read
     steps:
       # contents: write を持つため Checkout せず、受け取ったファイルをデータとして登録するだけにする
       - name: Download
@@ -364,7 +366,48 @@ jobs:
           name: release-assets
           path: ${{ runner.temp }}/release-assets
 
-      # 登録するのは、SHA256SUMS で照合したアーカイブ、SHA256SUMS、container-image.txt だけにする。
+      # SHA256SUMS との照合だけでは、アーカイブと SHA256SUMS が一緒に差し替えられた場合を検出できないため、
+      # 公開するアーカイブが、このワークフローによって同じコミットとタグで署名されたものであることを確かめる。
+      # 対象は Publish release が登録するのと同じ、SHA256SUMS に列挙されたアーカイブである
+      - name: Verify assets
+        working-directory: ${{ runner.temp }}/release-assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # 列挙が空だと検証が1回も走らずに成功し、重複があると別のアーカイブが欠けるため、期待する 6 件と一致することを確かめる
+          version="${GITHUB_REF_NAME#v}"
+          expected="$(printf "playground-workflows_${version}_%s\n" \
+            darwin_amd64.tar.gz darwin_arm64.tar.gz \
+            linux_amd64.tar.gz linux_arm64.tar.gz \
+            windows_amd64.zip windows_arm64.zip | sort)"
+          listed="$(awk '{print $2}' SHA256SUMS | sort)"
+          if [[ "${listed}" != "${expected}" ]]; then
+            echo "::error::SHA256SUMS does not list exactly the six archives"
+            diff <(echo "${expected}") <(echo "${listed}") || true
+            exit 1
+          fi
+          sha256sum -c SHA256SUMS
+
+          # gh attestation verify はファイルの digest だけで Attestation を照合するため、
+          # 署名された subject の名前もファイル名と一致することを確かめ、アーカイブ同士の中身の入れ替えを検出する。
+          # 成功しても何も出力しないため、結果を出力する
+          for file in ${expected}; do
+            digest="$(sha256sum "${file}" | awk '{print $1}')"
+            gh attestation verify "${file}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/release-go-cli.yml" \
+              --signer-digest "${GITHUB_SHA}" \
+              --source-ref "${GITHUB_REF}" \
+              --source-digest "${GITHUB_SHA}" \
+              --deny-self-hosted-runners \
+              --format json |
+              jq -e --arg name "${file}" --arg digest "${digest}" \
+                'any(.[].verificationResult.statement.subject[]; .name == $name and .digest.sha256 == $digest)' > /dev/null
+            echo "Attestation verified: ${file}"
+          done
+
+      # 登録するのは、Verify assets で照合と来歴の検証をしたアーカイブ、SHA256SUMS、container-image.txt だけにする。
       # --verify-tag はタグがなければ失敗させ、gh がタグを新しく作ることを防ぐ。
       # タグがあれば --target は使われないため、タグの付け替えは検出できない。
       # 同じバージョンの Release があれば gh release create が失敗し、既存の Release は書き換えない
@@ -376,7 +419,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          sha256sum -c SHA256SUMS
           if [[ ! "${IMAGE_DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
             echo "::error::The image digest is not in the form of sha256:<hex>"
             exit 1
