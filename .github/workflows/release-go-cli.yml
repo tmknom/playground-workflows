@@ -16,8 +16,63 @@ defaults:
     shell: bash
 
 jobs:
-  test:
+  # リリースできない状態のタグでは、テストやビルドの前に止める
+  preflight:
     # 再実行では actor が最初の実行者のまま変わらないため、再実行した者も triggering_actor で確かめる
+    if: ${{ github.actor_id == github.repository_owner_id && github.triggering_actor == github.repository_owner }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    # パッケージは Public のため、GHCR へのログインと packages: read は要らない
+    permissions:
+      contents: read
+    steps:
+      # main の履歴と比べるため、すべての履歴を取得する
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      # origin/main を取得できなかった場合も、git merge-base が失敗するため止まる
+      - name: Verify tag
+        run: |
+          set -euo pipefail
+          if ! git merge-base --is-ancestor "${GITHUB_SHA}" origin/main; then
+            echo "::error::The tag ${GITHUB_REF_NAME} does not point to a commit on main"
+            exit 1
+          fi
+          echo "The tag ${GITHUB_REF_NAME} points to ${GITHUB_SHA} on main"
+
+      # 存在の確認はコマンドの成否だけで判定する。認証や通信の障害も「存在しない」と判定して先へ進むが、
+      # Release は release ジョブの gh release create が既存の Release を上書きせずに失敗する
+      - name: Verify no release exists
+        env:
+          VERSION: ${{ github.ref_name }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view "${VERSION}" --repo "${GITHUB_REPOSITORY}" > /dev/null 2>&1; then
+            echo "::error::The release ${VERSION} already exists"
+            exit 1
+          fi
+          echo "The release ${VERSION} does not exist"
+
+      # GHCR は、障害を「存在しない」と誤判定すると container ジョブがタグを上書きする。
+      # 検証用リポジトリでは削除してやり直せるため、この残余を受け入れる
+      - name: Verify no image exists
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if docker buildx imagetools inspect "ghcr.io/${GITHUB_REPOSITORY}:${VERSION}" > /dev/null 2>&1; then
+            echo "::error::The image tag ${VERSION} already exists"
+            exit 1
+          fi
+          echo "The image tag ${VERSION} does not exist"
+
+  test:
+    needs: [preflight]
+    # 「Re-run failed jobs」では成功済みのジョブの if が評価し直されないため、権限を持つジョブを守るよう全ジョブに同じ条件を置く
     if: ${{ github.actor_id == github.repository_owner_id && github.triggering_actor == github.repository_owner }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
