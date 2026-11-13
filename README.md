@@ -45,7 +45,8 @@ The `playground-workflows` CLI is released by the `.github/workflows/release-go-
 Each release publishes the following assets on [GitHub Releases][releases]:
 
 - `playground-workflows_<version>_<os>_<arch>.tar.gz` (`<os>` is `linux` or `darwin`) and `playground-workflows_<version>_windows_<arch>.zip`. `<arch>` is `amd64` or `arm64`
-- `SHA256SUMS`: the SHA-256 checksums of the archives
+- `<archive>.sbom.json`: the SBOM of each archive in SPDX JSON, where `<archive>` is the archive file name
+- `SHA256SUMS`: the SHA-256 checksums of the archives and the SBOMs
 - `container-image.txt`: the digest-pinned reference to the container image `ghcr.io/tmknom/playground-workflows`
 
 `<version>` is the tag without the leading `v`.
@@ -84,6 +85,7 @@ gh attestation verify playground-workflows_X.Y.Z_linux_amd64.tar.gz \
 
 The command requires the GitHub CLI to be authenticated, because it fetches the attestations from the GitHub API.
 If you pass a different `--source-ref`, the verification fails.
+The SBOMs carry attestations as well; verify one with the same command, replacing the file name with `<archive>.sbom.json`.
 
 ### Verify the checksum
 
@@ -127,6 +129,7 @@ Verifying the digest of a platform-specific manifest (`linux/amd64` or `linux/ar
 - The verification pins the tag name, not the commit. If a version was built more than once (for example, deleted and released again), archives and images from the earlier build also pass
 - The verification trusts everyone who can push to `main` and push tags, because a tag push runs the workflow file at the tagged commit
 - Release assets and tags are not protected against modification after publication
+- The attestation of an SBOM proves where the SBOM was generated, not that its contents are complete or accurate
 
 After each release, the release workflow runs the same `gh attestation verify` commands against the published assets.
 The release is already public at that point, and a failure does not withdraw it.

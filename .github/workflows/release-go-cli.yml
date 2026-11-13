@@ -146,6 +146,23 @@ jobs:
           version: v2.19.0
           install-only: true
 
+      # GoReleaser が SBOM の生成に呼び出す Syft を入れる。
+      # Action を使うと Action のコードは固定できても、実行時に取得する Syft は固定できないため、アーカイブの SHA-256 で固定する。
+      # 版とハッシュは verify-goreleaser.yml と同じ値にする
+      - name: Set up Syft
+        env:
+          SYFT_VERSION: 1.55.0
+          SYFT_SHA256: bb65249542db5fedeeb4d3f9b018b75e7264dbfbbb10486f044581a92f90490d
+        run: |
+          set -euo pipefail
+          archive="${RUNNER_TEMP}/syft_${SYFT_VERSION}_linux_amd64.tar.gz"
+          curl -fsSL --proto '=https' -o "${archive}" \
+            "https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/syft_${SYFT_VERSION}_linux_amd64.tar.gz"
+          echo "${SYFT_SHA256}  ${archive}" | sha256sum -c -
+          mkdir -p "${RUNNER_TEMP}/syft"
+          tar -xzf "${archive}" -C "${RUNNER_TEMP}/syft" syft
+          echo "${RUNNER_TEMP}/syft" >> "${GITHUB_PATH}"
+
       # 同じコミットに複数のタグがあると GoReleaser は最も大きいバージョンを選ぶため、起動したタグを明示する
       - name: Build
         env:
@@ -153,10 +170,11 @@ jobs:
           GORELEASER_CURRENT_TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
+          syft version
           goreleaser check
           goreleaser release --clean --skip=publish,announce
 
-      # アーカイブの過不足、バージョンの食い違い、SHA256SUMS への想定外の記載、アーカイブの中身の誤りを検出する。
+      # アーカイブと SBOM の過不足、バージョンの食い違い、SHA256SUMS への想定外の記載、アーカイブの中身の誤りを検出する。
       # バイナリの実行を照合より前に済ませ、照合の後はアップロードだけにする
       - name: Verify archives
         working-directory: dist
@@ -167,16 +185,24 @@ jobs:
             darwin_amd64.tar.gz darwin_arm64.tar.gz \
             linux_amd64.tar.gz linux_arm64.tar.gz \
             windows_amd64.zip windows_arm64.zip | sort)"
+          expected_sboms="$(sed 's/$/.sbom.json/' <<< "${expected}")"
+          expected_listed="$(printf '%s\n' ${expected} ${expected_sboms} | sort)"
           archives="$(find . -maxdepth 1 -type f \( -name '*.tar.gz' -o -name '*.zip' \) -printf '%f\n' | sort)"
+          sboms="$(find . -maxdepth 1 -type f -name '*.sbom.json' -printf '%f\n' | sort)"
           listed="$(awk '{print $2}' SHA256SUMS | sort)"
           if [[ "${archives}" != "${expected}" ]]; then
             echo "::error::Archives in dist/ do not match the expected six archives"
             diff <(echo "${expected}") <(echo "${archives}") || true
             exit 1
           fi
-          if [[ "${listed}" != "${expected}" ]]; then
-            echo "::error::SHA256SUMS does not list exactly the six archives"
-            diff <(echo "${expected}") <(echo "${listed}") || true
+          if [[ "${sboms}" != "${expected_sboms}" ]]; then
+            echo "::error::SBOMs in dist/ do not match the expected six SBOMs"
+            diff <(echo "${expected_sboms}") <(echo "${sboms}") || true
+            exit 1
+          fi
+          if [[ "${listed}" != "${expected_listed}" ]]; then
+            echo "::error::SHA256SUMS does not list exactly the six archives and six SBOMs"
+            diff <(echo "${expected_listed}") <(echo "${listed}") || true
             exit 1
           fi
 
@@ -204,6 +230,19 @@ jobs:
             fi
           done
 
+          # 各 SBOM が SPDX の JSON として読め、対象のアーカイブの名前と SHA-256 を記録していることを確かめる。
+          # SBOM の中身の正確さまでは確かめない
+          for archive in ${expected}; do
+            digest="$(sha256sum "${archive}" | awk '{print $1}')"
+            if ! jq -e --arg name "${archive}" --arg digest "${digest}" \
+              '(.spdxVersion | startswith("SPDX-")) and .name == $name and
+                any(.packages[]; .name == $name and any(.checksums[]?; .algorithm == "SHA256" and .checksumValue == $digest))' \
+              "${archive}.sbom.json" > /dev/null; then
+              echo "::error::${archive}.sbom.json does not describe ${archive}"
+              exit 1
+            fi
+          done
+
           # ldflags は全ターゲットで共通の設定のため、runner と同じ linux_amd64 の1件で埋め込みを確かめる。
           # dist/ を汚さないよう、展開先は dist/ の外にする
           extract="${RUNNER_TEMP}/linux_amd64"
@@ -225,6 +264,7 @@ jobs:
           path: |
             dist/*.tar.gz
             dist/*.zip
+            dist/*.sbom.json
             dist/SHA256SUMS
           if-no-files-found: error
           retention-days: 1
@@ -246,13 +286,13 @@ jobs:
           name: release-assets
           path: ${{ runner.temp }}/release-assets
 
-      # 署名する digest が、後続のジョブが公開する Artifact のアーカイブと一致することを確かめる
+      # 署名する digest が、後続のジョブが公開する Artifact のアーカイブと SBOM に一致することを確かめる
       - name: Verify checksums
         working-directory: ${{ runner.temp }}/release-assets
         run: sha256sum -c SHA256SUMS
 
       # predicate を渡さないと、SLSA Build Provenance の Attestation を作る。
-      # subject は SHA256SUMS に列挙されたアーカイブで、SHA256SUMS 自体は含まれない
+      # subject は SHA256SUMS に列挙されたアーカイブと SBOM で、SHA256SUMS 自体は含まれない
       - name: Attest build provenance
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
@@ -437,30 +477,33 @@ jobs:
           path: ${{ runner.temp }}/release-assets
 
       # SHA256SUMS との照合だけでは、アーカイブと SHA256SUMS が一緒に差し替えられた場合を検出できないため、
-      # 公開するアーカイブが、このワークフローによって同じコミットとタグで署名されたものであることを確かめる。
-      # 対象は Publish release が登録するのと同じ、SHA256SUMS に列挙されたアーカイブである
+      # 公開するアーカイブと SBOM が、このワークフローによって同じコミットとタグで署名されたものであることを確かめる。
+      # 対象は Publish release が登録するのと同じ、SHA256SUMS に列挙されたファイルである
       - name: Verify assets
         working-directory: ${{ runner.temp }}/release-assets
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          # 列挙が空だと検証が1回も走らずに成功し、重複があると別のアーカイブが欠けるため、期待する 6 件と一致することを確かめる
+          # 列挙が空だと検証が1回も走らずに成功し、重複があると別のファイルが欠けるため、
+          # 期待するアーカイブ 6 件と SBOM 6 件に一致することを確かめる
           version="${GITHUB_REF_NAME#v}"
-          expected="$(printf "playground-workflows_${version}_%s\n" \
+          archives="$(printf "playground-workflows_${version}_%s\n" \
             darwin_amd64.tar.gz darwin_arm64.tar.gz \
             linux_amd64.tar.gz linux_arm64.tar.gz \
-            windows_amd64.zip windows_arm64.zip | sort)"
+            windows_amd64.zip windows_arm64.zip)"
+          sboms="$(sed 's/$/.sbom.json/' <<< "${archives}")"
+          expected="$(printf '%s\n' ${archives} ${sboms} | sort)"
           listed="$(awk '{print $2}' SHA256SUMS | sort)"
           if [[ "${listed}" != "${expected}" ]]; then
-            echo "::error::SHA256SUMS does not list exactly the six archives"
+            echo "::error::SHA256SUMS does not list exactly the six archives and six SBOMs"
             diff <(echo "${expected}") <(echo "${listed}") || true
             exit 1
           fi
           sha256sum -c SHA256SUMS
 
           # gh attestation verify はファイルの digest だけで Attestation を照合するため、
-          # 署名された subject の名前もファイル名と一致することを確かめ、アーカイブ同士の中身の入れ替えを検出する。
+          # 署名された subject の名前もファイル名と一致することを確かめ、ファイル同士の中身の入れ替えを検出する。
           # 成功しても何も出力しないため、結果を出力する
           for file in ${expected}; do
             digest="$(sha256sum "${file}" | awk '{print $1}')"
@@ -477,7 +520,7 @@ jobs:
             echo "Attestation verified: ${file}"
           done
 
-      # 登録するのは、Verify assets で照合と来歴の検証をしたアーカイブ、SHA256SUMS、container-image.txt だけにする。
+      # 登録するのは、Verify assets で照合と来歴の検証をしたアーカイブと SBOM、SHA256SUMS、container-image.txt だけにする。
       # --verify-tag はタグがなければ失敗させ、gh がタグを新しく作ることを防ぐ。
       # タグがあれば --target は使われないため、タグの付け替えは検出できない。
       # 同じバージョンの Release があれば gh release create が失敗し、既存の Release は書き換えない
@@ -495,13 +538,13 @@ jobs:
           fi
           echo "ghcr.io/${GITHUB_REPOSITORY}@${IMAGE_DIGEST}" > container-image.txt
           # プロセス置換の失敗は set -e で止まらないため、件数を確かめてから公開する
-          mapfile -t archives < <(awk '{print $2}' SHA256SUMS)
-          if [[ "${#archives[@]}" -ne 6 ]]; then
-            echo "::error::SHA256SUMS lists ${#archives[@]} archives, but 6 are expected"
+          mapfile -t files < <(awk '{print $2}' SHA256SUMS)
+          if [[ "${#files[@]}" -ne 12 ]]; then
+            echo "::error::SHA256SUMS lists ${#files[@]} files, but 12 are expected"
             exit 1
           fi
           gh release create "${VERSION}" --repo "${GITHUB_REPOSITORY}" --verify-tag --target "${GITHUB_SHA}" \
-            --title "${VERSION}" --generate-notes "${archives[@]}" SHA256SUMS container-image.txt
+            --title "${VERSION}" --generate-notes "${files[@]}" SHA256SUMS container-image.txt
 
   # 公開した GitHub Release と GHCR のイメージを取得し直し、正規の成果物と照合する。このジョブの成功をもってリリースの完了とする。
   # 失敗した時点で Release は公開済みだが、自動では取り消さない
@@ -567,7 +610,7 @@ jobs:
           # 資産の名前は diff -r で照合済みのため、subject の名前は確かめない。
           # gh attestation verify は TTY がないと成功しても何も出力しないため、結果を出力する
           cd "${published}"
-          for file in ./*.tar.gz ./*.zip; do
+          for file in ./*.tar.gz ./*.zip ./*.sbom.json; do
             gh attestation verify "${file}" \
               --repo "${GITHUB_REPOSITORY}" \
               --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/release-go-cli.yml" \

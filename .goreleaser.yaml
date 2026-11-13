@@ -35,6 +35,20 @@ archives:
     files:
       - LICENSE
 
+# アーカイブごとに <アーカイブ名>.sbom.json を生成する。sbom は checksum より先に動くため、SBOM も SHA256SUMS に列挙される。
+# 既定の引数の --enrich all は、ライセンスなどの情報をネットワークから取得するため外し、アーカイブの中身だけから作る。
+# env を指定すると GoReleaser の既定値 SYFT_FILE_METADATA_CATALOGER_ENABLED が外れるが、Syft 1.x にない設定のため影響しない
+sboms:
+  - id: archive
+    artifacts: archive
+    cmd: syft
+    args:
+      - $artifact
+      - --output
+      - spdx-json=$document
+    env:
+      - SYFT_CHECK_FOR_APP_UPDATE=false
+
 checksum:
   name_template: SHA256SUMS
   algorithm: sha256
