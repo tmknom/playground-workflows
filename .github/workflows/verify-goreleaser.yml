@@ -20,7 +20,8 @@ defaults:
     shell: bash
 
 # GoReleaser はローカルにインストールせず、設定の確認はこのワークフローで行う。
-# スナップショットビルドで、配布アーカイブ 6 件と SHA256SUMS が期待どおりに生成されることを確かめる
+# スナップショットビルドで、配布アーカイブ 6 件、SBOM 6 件、SHA256SUMS が期待どおりに生成されることを確かめる。
+# Syft の版とハッシュ、アーカイブと SBOM の確認は release-go-cli.yml の build ジョブと同じにし、変えるときは両方を変える
 jobs:
   snapshot:
     runs-on: ubuntu-24.04
@@ -48,12 +49,28 @@ jobs:
           version: v2.19.0
           install-only: true
 
+      # GoReleaser が SBOM の生成に呼び出す Syft を入れる。release-go-cli.yml の build ジョブと同じ版とハッシュを使う
+      - name: Set up Syft
+        env:
+          SYFT_VERSION: 1.55.0
+          SYFT_SHA256: bb65249542db5fedeeb4d3f9b018b75e7264dbfbbb10486f044581a92f90490d
+        run: |
+          set -euo pipefail
+          archive="${RUNNER_TEMP}/syft_${SYFT_VERSION}_linux_amd64.tar.gz"
+          curl -fsSL --proto '=https' -o "${archive}" \
+            "https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/syft_${SYFT_VERSION}_linux_amd64.tar.gz"
+          echo "${SYFT_SHA256}  ${archive}" | sha256sum -c -
+          mkdir -p "${RUNNER_TEMP}/syft"
+          tar -xzf "${archive}" -C "${RUNNER_TEMP}/syft" syft
+          echo "${RUNNER_TEMP}/syft" >> "${GITHUB_PATH}"
+
       - name: Build snapshot
         env:
           GOTOOLCHAIN: local
         run: |
           set -euo pipefail
           goreleaser --version
+          syft version
           goreleaser check
           goreleaser release --snapshot --clean
 
@@ -64,21 +81,29 @@ jobs:
           version="$(jq -r .version metadata.json)"
           echo "version: ${version}"
 
-          # アーカイブの過不足と、SHA256SUMS に想定外のファイルが混ざっていないことを確かめる
+          # アーカイブと SBOM の過不足と、SHA256SUMS に想定外のファイルが混ざっていないことを確かめる
           expected="$(printf "playground-workflows_${version}_%s\n" \
             darwin_amd64.tar.gz darwin_arm64.tar.gz \
             linux_amd64.tar.gz linux_arm64.tar.gz \
             windows_amd64.zip windows_arm64.zip | sort)"
+          expected_sboms="$(sed 's/$/.sbom.json/' <<< "${expected}")"
+          expected_listed="$(printf '%s\n' ${expected} ${expected_sboms} | sort)"
           archives="$(find . -maxdepth 1 -type f \( -name '*.tar.gz' -o -name '*.zip' \) -printf '%f\n' | sort)"
+          sboms="$(find . -maxdepth 1 -type f -name '*.sbom.json' -printf '%f\n' | sort)"
           listed="$(awk '{print $2}' SHA256SUMS | sort)"
           if [[ "${archives}" != "${expected}" ]]; then
             echo "::error::Archives in dist/ do not match the expected six archives"
             diff <(echo "${expected}") <(echo "${archives}") || true
             exit 1
           fi
-          if [[ "${listed}" != "${expected}" ]]; then
-            echo "::error::SHA256SUMS does not list exactly the six archives"
-            diff <(echo "${expected}") <(echo "${listed}") || true
+          if [[ "${sboms}" != "${expected_sboms}" ]]; then
+            echo "::error::SBOMs in dist/ do not match the expected six SBOMs"
+            diff <(echo "${expected_sboms}") <(echo "${sboms}") || true
+            exit 1
+          fi
+          if [[ "${listed}" != "${expected_listed}" ]]; then
+            echo "::error::SHA256SUMS does not list exactly the six archives and six SBOMs"
+            diff <(echo "${expected_listed}") <(echo "${listed}") || true
             exit 1
           fi
           sha256sum -c SHA256SUMS
@@ -104,6 +129,19 @@ jobs:
                 echo "::error::playground-workflows in ${archive} is not executable: ${mode}"
                 exit 1
               fi
+            fi
+          done
+
+          # 各 SBOM が SPDX の JSON として読め、対象のアーカイブの名前と SHA-256 を記録していることを確かめる。
+          # release-go-cli.yml の build ジョブと同じ確認で、SBOM の中身の正確さまでは確かめない
+          for archive in ${expected}; do
+            digest="$(sha256sum "${archive}" | awk '{print $1}')"
+            if ! jq -e --arg name "${archive}" --arg digest "${digest}" \
+              '(.spdxVersion | startswith("SPDX-")) and .name == $name and
+                any(.packages[]; .name == $name and any(.checksums[]?; .algorithm == "SHA256" and .checksumValue == $digest))' \
+              "${archive}.sbom.json" > /dev/null; then
+              echo "::error::${archive}.sbom.json does not describe ${archive}"
+              exit 1
             fi
           done
 

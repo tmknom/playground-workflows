@@ -10,7 +10,7 @@
 | リポジトリ | GitHub Free の Public リポジトリ。技術検証用である |
 | 実行基盤 | GitHub-hosted runners |
 | 配布する CLI | リポジトリ直下の `main.go`。バイナリ名は `playground-workflows` |
-| 配布物 | Linux / macOS / Windows × amd64 / arm64 の 6 種類の配布アーカイブ |
+| 配布物 | Linux / macOS / Windows × amd64 / arm64 の 6 種類の配布アーカイブと、アーカイブごとの SBOM（SPDX JSON） |
 | コンテナ | `linux/amd64`、`linux/arm64` のマルチアーキテクチャイメージ `ghcr.io/tmknom/playground-workflows` |
 | リリースの起点 | ローカルで作成してプッシュした `vX.Y.Z` 形式の Git タグ |
 | 認証 | `GITHUB_TOKEN` と GitHub Actions の OIDC だけを使う。長期保管する秘密鍵や GitHub App は導入しない |
@@ -25,8 +25,8 @@ deb / rpm / apk の OS パッケージと Homebrew Formula は、現時点では
 
 | 性質 | 保証・検証する内容 | 保証しない内容 |
 |---|---|---|
-| 完全性 | 配布アーカイブの SHA-256 と OCI イメージの digest が期待値に一致する | ハッシュ値だけで期待値の入手元を信頼できること |
-| 来歴 | 成果物の digest と、リポジトリ、タグ、コミット、署名したワークフローの対応が署名で検証できる | 実行された処理やソースコードが安全であること |
+| 完全性 | 配布アーカイブと SBOM の SHA-256、OCI イメージの digest が期待値に一致する | ハッシュ値だけで期待値の入手元を信頼できること |
+| 来歴 | 成果物の digest と、リポジトリ、タグ、コミット、署名したワークフローの対応が署名で検証できる | 実行された処理やソースコードが安全であること、SBOM の記載内容が正確であること |
 | 機能品質 | テストが成功する。linux_amd64 の配布アーカイブと、amd64 / arm64 のコンテナで、`--version` の出力がタグと一致する | 全障害・全欠陥の不存在、Linux 以外の OS での実行 |
 | 公開の一貫性 | GitHub Release と GHCR のイメージを `container-image.txt` の digest で結び付け、公開後に照合する | GitHub Releases と GHCR の原子的な同時公開 |
 
@@ -65,10 +65,10 @@ preflight ── タグが main の履歴にあるか、同じバージョンの
 test ── go mod verify / go vet / go test
     │
     ▼
-build ── GoReleaser で配布アーカイブ 6 件と SHA256SUMS を生成し、中身とバージョンを確認
+build ── GoReleaser で配布アーカイブ 6 件、SBOM 6 件、SHA256SUMS を生成し、中身とバージョンを確認
     │
     ▼
-attest ── 配布アーカイブの Artifact Attestation
+attest ── 配布アーカイブと SBOM の Artifact Attestation
     │
     ▼
 container ── アーカイブ内の Linux バイナリを OCI 化して GHCR へ公開、証明
@@ -139,17 +139,19 @@ container が GHCR に公開した後に失敗した実行は、全ジョブの�
 
 ### build
 
-GoReleaser OSS で配布アーカイブ 6 件と `SHA256SUMS` を生成し、`release-assets` という名前の Actions Artifact としてアップロードします。
+GoReleaser OSS で配布アーカイブ 6 件、SBOM 6 件、`SHA256SUMS` を生成し、`release-assets` という名前の Actions Artifact としてアップロードします。
 このジョブの出力が、以降のすべてのジョブが扱う正規の成果物です。
 
 - GoReleaser がタグからバージョンを決めるため、全履歴（`fetch-depth: 0`）を取得する
+- GoReleaser が SBOM の生成に呼び出す Syft を、GitHub Releases から取得し、ワークフローに書いた SHA-256 と照合してからインストールする（[外部 Action とツールの固定](#外部-action-とツールの固定)）
 - `goreleaser check` の後、`goreleaser release --clean --skip=publish,announce` を実行する
 - `GORELEASER_CURRENT_TAG` に起動したタグを渡す。同じコミットに複数のタグがあると、GoReleaser は最も大きいバージョンのタグを選ぶためである
-- `dist/` のアーカイブと `SHA256SUMS` に列挙されたファイル名が、どちらもタグのバージョンを含む期待どおりの 6 件と一致することを確かめる。アーカイブの欠落、バージョンの食い違い、想定外のファイルの混入を検出する
+- `dist/` のアーカイブが、タグのバージョンを含む期待どおりの 6 件と一致し、`dist/` の SBOM がその 6 件に `.sbom.json` を付けた名前と一致し、`SHA256SUMS` の列挙がその 12 件と一致することを確かめる。アーカイブや SBOM の欠落、バージョンの食い違い、想定外のファイルの混入を検出する
 - 6 件それぞれの直下が `playground-workflows`（Windows では `playground-workflows.exe`）と `LICENSE` だけであること、tar.gz のバイナリに実行権限があることを確かめる
+- 各 SBOM が SPDX の JSON として読め、文書の名前が対象のアーカイブ名であり、アーカイブ名のパッケージに対象のアーカイブの SHA-256 が記録されていることを確かめる。SBOM の記載内容の正確さは確かめない
 - linux_amd64 のアーカイブを `dist/` の外に展開して実行し、`--version` の出力がタグと一致することを確かめる。`-X` の変数名を誤ってもリンカは警告なしに無視するため、埋め込みはバイナリを実行して確かめる
 - 最後に `sha256sum -c SHA256SUMS` を実行する。バイナリの実行より後に置き、照合の後はアップロードだけにする
-- アップロードするのは `dist/*.tar.gz`、`dist/*.zip`、`dist/SHA256SUMS` だけで、`dist/` 内の内部メタデータや単体のバイナリは渡さない
+- アップロードするのは `dist/*.tar.gz`、`dist/*.zip`、`dist/*.sbom.json`、`dist/SHA256SUMS` だけで、`dist/` 内の内部メタデータや単体のバイナリは渡さない
 
 アーカイブの確認を別ジョブにせず build に置くのは、アップロードするファイルそのものを確かめられ、build が OIDC も公開の権限も持たないためです。
 test ジョブでは、GoReleaser が作ったバイナリがまだ存在しないため、`-X` が効いたかを確かめられません。
@@ -160,7 +162,7 @@ darwin と windows は、`ldflags` が全ターゲットで共通であるとい
 
 ### attest
 
-`actions/attest` に `subject-checksums` として `SHA256SUMS` を渡し、配布アーカイブ 6 件に SLSA Build Provenance の Artifact Attestation を付けます。
+`actions/attest` に `subject-checksums` として `SHA256SUMS` を渡し、`SHA256SUMS` に列挙された配布アーカイブ 6 件と SBOM 6 件に SLSA Build Provenance の Artifact Attestation を付けます。
 `SHA256SUMS` 自体は subject に含まれません。
 
 署名するジョブを build と分けるのは、GoReleaser やビルド中に動くコードに OIDC の権限を渡さないためです。
@@ -203,11 +205,11 @@ GHCR にはログインせず、匿名で取得します。
 
 受け取った成果物を検証してから、GitHub Release を公開します。
 
-1. `SHA256SUMS` に列挙されたファイル名が、タグのバージョンを含む期待どおりの 6 件と一致することを確かめ、`sha256sum -c SHA256SUMS` で照合する
-2. 配布アーカイブ 6 件のそれぞれで `gh attestation verify` を実行する。期待値は、リポジトリ、署名したワークフロー（`release-go-cli.yml`）、`--signer-digest` と `--source-digest` に `GITHUB_SHA`、`--source-ref` に `GITHUB_REF` である。`gh attestation verify` はファイルの digest だけで Attestation を探すため、`--format json` の出力から、ファイル名と digest の組が署名された subject に含まれることも確かめる
+1. `SHA256SUMS` に列挙されたファイル名が、タグのバージョンを含む期待どおりの 12 件（アーカイブ 6 件と SBOM 6 件）と一致することを確かめ、`sha256sum -c SHA256SUMS` で照合する
+2. 12 件のそれぞれで `gh attestation verify` を実行する。期待値は、リポジトリ、署名したワークフロー（`release-go-cli.yml`）、`--signer-digest` と `--source-digest` に `GITHUB_SHA`、`--source-ref` に `GITHUB_REF` である。`gh attestation verify` はファイルの digest だけで Attestation を探すため、`--format json` の出力から、ファイル名と digest の組が署名された subject に含まれることも確かめる
 3. container の出力した digest が `sha256:<64 桁の 16 進数>` の形であることを確かめる
 4. `ghcr.io/tmknom/playground-workflows@sha256:<digest>` を1行で書いた `container-image.txt` を作る
-5. `gh release create <タグ> --verify-tag --target <GITHUB_SHA> --title <タグ> --generate-notes` で公開する。資産として登録するのは、`SHA256SUMS` に列挙されたアーカイブ、`SHA256SUMS`、`container-image.txt` だけである。列挙が 6 件でなければ公開しない
+5. `gh release create <タグ> --verify-tag --target <GITHUB_SHA> --title <タグ> --generate-notes` で公開する。資産として登録するのは、`SHA256SUMS` に列挙されたアーカイブと SBOM、`SHA256SUMS`、`container-image.txt` だけである。列挙が 12 件でなければ公開しない
 
 `SHA256SUMS` との照合だけでは、アーカイブと `SHA256SUMS` が一緒に差し替えられた場合を検出できません。
 署名の検証を加えることで、公開するアーカイブが、このワークフローによって同じコミットとタグで署名されたものであることを確かめます。
@@ -253,19 +255,20 @@ verify-image と同じく、GHCR にはログインせず、`packages: read` も
 
 ## 成果物とジョブ間の受け渡し
 
-GitHub Release の資産は、次の 8 件です。
+GitHub Release の資産は、次の 14 件です。
 
 | 資産 | 内容 | 生成するジョブ |
 |---|---|---|
 | `playground-workflows_<バージョン>_<os>_<arch>.tar.gz` | Linux、macOS 向けの配布アーカイブ。4 件 | build |
 | `playground-workflows_<バージョン>_windows_<arch>.zip` | Windows 向けの配布アーカイブ。2 件 | build |
-| `SHA256SUMS` | 配布アーカイブ 6 件の SHA-256 | build |
+| `<アーカイブ名>.sbom.json` | 配布アーカイブごとの SBOM（SPDX JSON）。6 件 | build |
+| `SHA256SUMS` | 配布アーカイブ 6 件と SBOM 6 件の SHA-256 | build |
 | `container-image.txt` | GHCR のイメージの digest 付きの参照。1行 | release |
 
 `<バージョン>` は先頭の `v` を除いた形です。
 各アーカイブは直下に `playground-workflows`（Windows では `playground-workflows.exe`）と `LICENSE` を含みます。
 
-ジョブ間で受け渡す Actions Artifact は `release-assets` の1つだけで、中身は配布アーカイブ 6 件と `SHA256SUMS` です。
+ジョブ間で受け渡す Actions Artifact は `release-assets` の1つだけで、中身は配布アーカイブ 6 件、SBOM 6 件、`SHA256SUMS` です。
 コンテナに格納する Linux バイナリは、container が Linux 向けアーカイブから取り出します。
 アーカイブは `SHA256SUMS` と Artifact Attestation で検証できるため、取り出したバイナリは配布物と同じバイト列になり、バイナリ単体のハッシュ一覧を別に持つ必要がありません。
 実行権限もアーカイブの中で保持されます。
@@ -278,12 +281,13 @@ GHCR の Image Index digest は、container ジョブの出力 `digest` とし�
 
 ## ビルドの設定
 
-Go のビルドとパッケージングは GoReleaser OSS に任せ、担当範囲をバイナリ、アーカイブ、チェックサムの生成までに限ります。
+Go のビルドとパッケージングは GoReleaser OSS に任せ、担当範囲をバイナリ、アーカイブ、SBOM、チェックサムの生成までに限ります。
 
 | 処理 | 担当 |
 |---|---|
 | Go のクロスコンパイル | GoReleaser OSS |
 | tar.gz / ZIP の生成 | GoReleaser OSS |
+| SBOM の生成 | GoReleaser OSS の `sboms` が呼び出す Syft |
 | `SHA256SUMS` の生成 | GoReleaser OSS の `checksum` |
 | コンテナイメージの生成と GHCR への公開 | Docker Buildx（GoReleaser の Docker 機能は使わない） |
 | 来歴証明 | GitHub Artifact Attestations（GoReleaser の署名機能は使わない） |
@@ -297,8 +301,12 @@ Go のビルドとパッケージングは GoReleaser OSS に任せ、担当範�
 - **`ldflags`**：`-s -w -X main.version={{ .Version }}`
 - **`mod_timestamp`**：`{{ .CommitTimestamp }}`。バイナリの更新時刻をビルド時刻ではなくコミット時刻にする
 - **`archives`**：既定は tar.gz、Windows は ZIP。名前は `{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}`。同梱ファイルは `LICENSE` だけを明示する
+- **`sboms`**：`artifacts: archive` で、アーカイブごとに `<アーカイブ名>.sbom.json` を SPDX JSON で生成する。GoReleaser では `sboms` が `checksum` より先に動くため、SBOM も `SHA256SUMS` に列挙され、署名の対象になる。Syft の既定の引数にある `--enrich all` は、ライセンスなどの情報をネットワークから取得するため外し、アーカイブの中身だけから作る。Syft の更新の確認（`SYFT_CHECK_FOR_APP_UPDATE`）も止める
 - **`checksum`**：`name_template: SHA256SUMS`、`algorithm: sha256`
 - **`changelog`**：`disable: true`
+
+SBOM には生成時刻と実行ごとに変わる文書の識別子が入るため、同じ入力から生成し直しても同じバイト列になりません。
+SBOM の記載内容は、アーカイブ内のバイナリに埋め込まれたビルド情報から Syft が読み取ったもので、正確さはリリースの工程で確かめません。
 
 `before.hooks` は置きません。
 `go generate` や `go mod tidy` をリリース中に実行すると、ソースや依存の定義がビルドの途中で変わり得るためです。
@@ -337,7 +345,7 @@ GHCR へは `docker/login-action` に `GITHUB_TOKEN` を渡してログインし
 
 | subject | 生成するジョブ | 保存先 |
 |---|---|---|
-| 配布アーカイブ 6 件（`SHA256SUMS` に列挙されたもの） | attest | GitHub の Attestation API |
+| 配布アーカイブ 6 件と SBOM 6 件（`SHA256SUMS` に列挙されたもの） | attest | GitHub の Attestation API |
 | GHCR の Image Index digest | container | GitHub の Attestation API と GHCR（`push-to-registry: true`） |
 
 イメージの証明は、container ジョブの中で生成します。
@@ -439,6 +447,8 @@ gh attestation verify playground-workflows_X.Y.Z_linux_amd64.tar.gz \
   --deny-self-hosted-runners
 ```
 
+SBOM も、ファイル名を `<アーカイブ名>.sbom.json` に変えた同じコマンドで検証します。
+
 コンテナイメージは、`container-image.txt` に書かれた digest 付きの参照で特定してから検証します。
 
 ```bash
@@ -481,6 +491,7 @@ Lambda リリースは直近のタグから次のバージョンを計算する�
 
 - **Action**：`uses` はすべて完全なコミット SHA で固定し、行末のコメントにバージョンを書く。更新は Dependabot（`github-actions`）に任せる
 - **GoReleaser**：`goreleaser/goreleaser-action` の `version` に、GoReleaser OSS の正確なバージョンを指定する。`install-only: true` でインストールだけを行い、実行はシェルから明示的に行う
+- **Syft**：GitHub Releases から linux_amd64 のアーカイブを取得し、ワークフローに書いた SHA-256 と照合してから使う。インストール用の Action（`anchore/sbom-action/download-syft`）は使わない。Action の SHA で固定できるのは Action のコードだけで、Action が実行時に取得する Syft のバイト列は固定できないためである。Dependabot では更新できないため、版とハッシュは手動で更新し、release-go-cli.yml と verify-goreleaser.yml を同時に変える
 - **Go**：`go.mod` の `go` 行で固定する
 - **ベースイメージ**：Dockerfile の `FROM` に digest で固定する
 
@@ -494,7 +505,7 @@ Lambda リリースは直近のタグから次のバージョンを計算する�
 4. リリースの工程でソースコードや依存の定義を変更しない。
 5. Go のバイナリは build ジョブの GoReleaser だけが生成し、コンテナ化で再コンパイルしない。
 6. コンテナ内のバイナリは、配布アーカイブ内の Linux バイナリとバイト単位で一致する。
-7. 来歴証明の subject は、配布アーカイブの SHA-256 と Image Index の digest である。
+7. 来歴証明の subject は、配布アーカイブと SBOM の SHA-256、Image Index の digest である。
 8. OIDC の権限は attest と container だけに、公開の権限は container と release だけに与える。
 9. 必須の検証に失敗した場合は、GitHub Release を公開しない。
 10. 既存の GitHub Release と GHCR のバージョンタグを、自動で上書きしない。
@@ -520,9 +531,9 @@ Lambda リリースは直近のタグから次のバージョンを計算する�
 | 拡張 | 着手の条件 | 概要 |
 |---|---|---|
 | OS matrix の通常 CI | OS 固有の処理がコードに入ったとき | プルリクエストで、Linux / macOS / Windows の runner で `go test` を実行する |
-| 配布アーカイブの SBOM | 外部のモジュールへの依存が増えたとき、または提供を求められたとき | GoReleaser の `sboms` で生成し、Syft をバージョン固定でインストールする |
+| コンテナイメージの SBOM | 提供を求められたとき | 格納するバイナリは配布アーカイブと同じため、アーカイブの SBOM で代えられないかを先に判断する |
 | `govulncheck` | 外部のモジュールへの依存が増えたとき | test ジョブで実行し、検出があれば止める。通常 CI を先に用意するかもあわせて判断する |
-| 再ビルドによる再現性の確認 | Attestation と実行確認に加えて必要と判断したとき | 別の runner で再ビルドし、正規の `SHA256SUMS` で `sha256sum -c` する。アーカイブ内のファイルの時刻、所有者、権限の固定が必要になる可能性がある |
+| 再ビルドによる再現性の確認 | Attestation と実行確認に加えて必要と判断したとき | 別の runner で再ビルドし、正規の `SHA256SUMS` のアーカイブの行で照合する。SBOM は生成のたびに変わるため照合から外す。アーカイブ内のファイルの時刻、所有者、権限の固定が必要になる可能性がある |
 | Immutable Release | 削除を伴う試行が不要になったとき（Lambda リリースも含む） | Immutable Releases と Tag Rulesets を有効にし、post-verify と利用者向けの手順に `gh release verify` を加える |
 | deb / rpm / apk | 配布を求められたとき | GoReleaser の `nfpms` を第一候補とし、build が生成したバイナリを再コンパイルせずに格納する |
 | Homebrew Formula | 配布を求められたとき | 別リポジトリへの書き込み権限と認証情報の設計が必要になる |
