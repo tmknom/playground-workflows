@@ -41,7 +41,7 @@ SLSA の Build Level を名乗ることは目的にしません。
 `v0` のような形式外のタグやプレリリースのタグでは、ワークフローが起動しません。
 
 - **バージョンの正本**：Git タグである。ビルドはタグが指すコミット SHA（`GITHUB_SHA`）から行い、実行中に `main` の最新状態を解決し直さない
-- **起動者の制限**：最初のジョブの `if` で `github.actor_id == github.repository_owner_id` と `github.triggering_actor == github.repository_owner` の両方を要求する。`github.actor` は再実行しても最初の実行者のままで、再実行はその権限で動くため、再実行した者を `github.triggering_actor` で確かめる。`triggering_actor` には ID がないため、ユーザー名で比べる。後続のジョブは `needs` で連なるため、条件を満たさなければ一緒にスキップされる
+- **起動者の制限**：すべてのジョブの `if` で `github.actor_id == github.repository_owner_id` と `github.triggering_actor == github.repository_owner` の両方を要求する。`github.actor` は再実行しても最初の実行者のままで、再実行はその権限で動くため、再実行した者を `github.triggering_actor` で確かめる。`triggering_actor` には ID がないため、ユーザー名で比べる。最初のジョブだけに置かないのは、「Re-run failed jobs」では成功済みのジョブが実行し直されず、その `if` も評価し直されないためである。必須なのは権限を持つジョブ（attest、container、release）で、読み取り専用のジョブにも置くのは、ジョブごとに要否を判断せずに済む規則にするためである
 - **タグの移動**：公開物を残したまま、タグを別のコミットへ移動しない。ソースを直す場合は新しいバージョンを使うか、[失敗時のやり直し](#失敗時のやり直し) の手順で公開物を削除してから作り直す
 - **正式リリースの完了点**：GitHub Release の公開である。タグや GHCR のイメージが存在しても、GitHub Release が公開されるまではリリース済みと扱わない
 
@@ -132,7 +132,8 @@ GoReleaser OSS で配布アーカイブ 6 件と `SHA256SUMS` を生成し、`re
 
 - GoReleaser がタグからバージョンを決めるため、全履歴（`fetch-depth: 0`）を取得する
 - `goreleaser check` の後、`goreleaser release --clean --skip=publish,announce` を実行する
-- `dist/` で `sha256sum -c SHA256SUMS` を実行し、`SHA256SUMS` がちょうど 6 行であることを確かめる。アーカイブの欠落と想定外のファイルの混入を検出する
+- `GORELEASER_CURRENT_TAG` に起動したタグを渡す。同じコミットに複数のタグがあると、GoReleaser は最も大きいバージョンのタグを選ぶためである
+- `dist/` のアーカイブと `SHA256SUMS` に列挙されたファイル名が、どちらもタグのバージョンを含む期待どおりの 6 件と一致することを確かめてから、`sha256sum -c SHA256SUMS` を実行する。アーカイブの欠落、バージョンの食い違い、想定外のファイルの混入を検出する
 - アップロードするのは `dist/*.tar.gz`、`dist/*.zip`、`dist/SHA256SUMS` だけで、`dist/` 内の内部メタデータや単体のバイナリは渡さない
 
 ### attest
@@ -359,6 +360,9 @@ preflight は同じバージョンの Release と GHCR のタグがあると止�
 
 `concurrency` は `group: release`、`cancel-in-progress: false` とし、実行中の公開を後続の実行が取り消さないようにします。
 グループ名は Lambda のリリースと共有します（[Lambda リリースとの共存](#lambda-リリースとの共存)）。
+`queue` は既定の `single` のままのため、グループ内で待機できる実行は1つだけです。
+待機中の実行は、後から待機に入った実行に置き換えられて取り消されます。
+取り消された実行は、何も公開していないため、再実行してやり直します。
 同時実行の制御では管理者の直接操作を防げないため、preflight の存在確認と post-verify の照合は省略しません。
 
 ## Immutable Release を採用しない運用
@@ -463,6 +467,7 @@ Lambda リリースは直近のタグから次のバージョンを計算する�
 - **実行中のタグの付け替え**：Tag Rulesets でタグを保護していないため、実行中にタグを付け替えられる可能性がある。post-verify がタグの参照先を確認して検出する
 - **存在確認の誤判定**：preflight は認証や通信の障害を「存在しない」と判定する。GHCR のタグが上書きされる可能性が残る
 - **公開物の書き換え**：Immutable Release を採用していないため、公開後の資産とタグは書き換えから保護されていない
+- **待機中の実行の取り消し**：`concurrency` の `queue` が `single` のため、リリースの実行中に2つ以上の実行が待機に入ると、先に待機していた実行が取り消される。取り消しは実行の一覧に残るため、気付いた時点で再実行する
 
 ## 将来の拡張
 
