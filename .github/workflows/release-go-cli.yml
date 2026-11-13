@@ -16,8 +16,78 @@ defaults:
     shell: bash
 
 jobs:
-  test:
+  # リリースできない状態のタグでは、テストやビルドの前に止める
+  preflight:
     # 再実行では actor が最初の実行者のまま変わらないため、再実行した者も triggering_actor で確かめる
+    if: ${{ github.actor_id == github.repository_owner_id && github.triggering_actor == github.repository_owner }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    # パッケージは Public のため、GHCR へのログインと packages: read は要らない
+    permissions:
+      contents: read
+    steps:
+      # main の履歴と比べるため、すべての履歴を取得する
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      # git merge-base --is-ancestor は、祖先でなければ 1 を、origin/main がないなどの失敗では 128 を返す。
+      # 失敗を「main にない」と報告しないよう、終了コードで分ける
+      - name: Verify tag
+        run: |
+          set -euo pipefail
+          status=0
+          git merge-base --is-ancestor "${GITHUB_SHA}" origin/main || status=$?
+          if [[ "${status}" -eq 1 ]]; then
+            echo "::error::The tag ${GITHUB_REF_NAME} does not point to a commit on main"
+            exit 1
+          elif [[ "${status}" -ne 0 ]]; then
+            echo "::error::git merge-base failed with exit code ${status}"
+            exit 1
+          fi
+          echo "The tag ${GITHUB_REF_NAME} points to ${GITHUB_SHA} on main"
+
+      # 存在しない場合も、認証や通信の障害でも終了コードは 1 になるため、エラーメッセージで「存在しない」を判定する。
+      # それ以外の失敗は、確認できなかったものとして止める
+      - name: Verify no release exists
+        env:
+          VERSION: ${{ github.ref_name }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if err="$(gh release view "${VERSION}" --repo "${GITHUB_REPOSITORY}" 2>&1 > /dev/null)"; then
+            echo "::error::The release ${VERSION} already exists"
+            exit 1
+          fi
+          if [[ "${err}" != "release not found" ]]; then
+            echo "::error::Could not check the release ${VERSION}: ${err}"
+            exit 1
+          fi
+          echo "The release ${VERSION} does not exist"
+
+      # 匿名では、存在しないパッケージも not found になるため、非公開のパッケージのタグも検出できない可能性がある。
+      # パッケージは Public である前提で運用する
+      - name: Verify no image exists
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          ref="ghcr.io/${GITHUB_REPOSITORY}:${VERSION}"
+          if err="$(docker buildx imagetools inspect "${ref}" 2>&1 > /dev/null)"; then
+            echo "::error::The image tag ${VERSION} already exists"
+            exit 1
+          fi
+          if [[ "${err}" != "ERROR: ${ref}: not found" ]]; then
+            echo "::error::Could not check the image tag ${VERSION}: ${err}"
+            exit 1
+          fi
+          echo "The image tag ${VERSION} does not exist"
+
+  test:
+    needs: [preflight]
+    # 「Re-run failed jobs」では成功済みのジョブの if が評価し直されないため、権限を持つジョブを守るよう全ジョブに同じ条件を置く
     if: ${{ github.actor_id == github.repository_owner_id && github.triggering_actor == github.repository_owner }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
