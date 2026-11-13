@@ -86,7 +86,8 @@ jobs:
           goreleaser check
           goreleaser release --clean --skip=publish,announce
 
-      # アーカイブの過不足、バージョンの食い違い、SHA256SUMS への想定外の記載を検出する
+      # アーカイブの過不足、バージョンの食い違い、SHA256SUMS への想定外の記載、アーカイブの中身の誤りを検出する。
+      # バイナリの実行を照合より前に済ませ、照合の後はアップロードだけにする
       - name: Verify archives
         working-directory: dist
         run: |
@@ -108,6 +109,43 @@ jobs:
             diff <(echo "${expected}") <(echo "${listed}") || true
             exit 1
           fi
+
+          # 各アーカイブの直下に、バイナリと LICENSE だけがあることと、tar.gz のバイナリに実行権限があることを確かめる。
+          # 実行権限はバイナリの存在を確かめてから調べる。バイナリがないと tar が失敗し、原因がわかりにくくなるため
+          for archive in ${expected}; do
+            if [[ "${archive}" == *.zip ]]; then
+              entries="$(unzip -Z1 "${archive}" | sort)"
+              want="$(printf '%s\n' LICENSE playground-workflows.exe)"
+            else
+              entries="$(tar -tzf "${archive}" | sort)"
+              want="$(printf '%s\n' LICENSE playground-workflows)"
+            fi
+            if [[ "${entries}" != "${want}" ]]; then
+              echo "::error::Unexpected entries in ${archive}"
+              echo "${entries}"
+              exit 1
+            fi
+            if [[ "${archive}" == *.tar.gz ]]; then
+              mode="$(tar -tvzf "${archive}" playground-workflows | awk '{print $1}')"
+              if [[ "${mode}" != -rwx* ]]; then
+                echo "::error::playground-workflows in ${archive} is not executable: ${mode}"
+                exit 1
+              fi
+            fi
+          done
+
+          # ldflags は全ターゲットで共通の設定のため、runner と同じ linux_amd64 の1件で埋め込みを確かめる。
+          # dist/ を汚さないよう、展開先は dist/ の外にする
+          extract="${RUNNER_TEMP}/linux_amd64"
+          mkdir -p "${extract}"
+          tar -xzf "playground-workflows_${version}_linux_amd64.tar.gz" -C "${extract}"
+          actual="$("${extract}/playground-workflows" --version)"
+          if [[ "${actual}" != "${version}" ]]; then
+            echo "::error::--version printed ${actual}, but ${version} is expected"
+            exit 1
+          fi
+          echo "linux_amd64 --version: ${actual}"
+
           sha256sum -c SHA256SUMS
 
       - name: Upload
@@ -262,6 +300,11 @@ jobs:
             exit 1
           fi
           echo "ghcr.io/${GITHUB_REPOSITORY}@${IMAGE_DIGEST}" > container-image.txt
+          # プロセス置換の失敗は set -e で止まらないため、件数を確かめてから公開する
           mapfile -t archives < <(awk '{print $2}' SHA256SUMS)
+          if [[ "${#archives[@]}" -ne 6 ]]; then
+            echo "::error::SHA256SUMS lists ${#archives[@]} archives, but 6 are expected"
+            exit 1
+          fi
           gh release create "${VERSION}" --repo "${GITHUB_REPOSITORY}" --verify-tag --target "${GITHUB_SHA}" \
             --title "${VERSION}" --generate-notes "${archives[@]}" SHA256SUMS container-image.txt

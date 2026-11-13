@@ -189,7 +189,7 @@ amd64 と arm64 の runner で1回ずつ実行し、Image Index から runner �
 2. 配布アーカイブ 6 件のそれぞれで `gh attestation verify` を実行する。期待値は、リポジトリ、署名したワークフロー（`release-go-cli.yml`）、`--signer-digest` と `--source-digest` に `GITHUB_SHA`、`--source-ref` に `GITHUB_REF` である
 3. container の出力した digest が `sha256:<64 桁の 16 進数>` の形であることを確かめる
 4. `ghcr.io/tmknom/playground-workflows@sha256:<digest>` を1行で書いた `container-image.txt` を作る
-5. `gh release create <タグ> --verify-tag --target <GITHUB_SHA> --title <タグ> --generate-notes` で公開する。資産として登録するのは、`SHA256SUMS` に列挙されたアーカイブ、`SHA256SUMS`、`container-image.txt` だけである
+5. `gh release create <タグ> --verify-tag --target <GITHUB_SHA> --title <タグ> --generate-notes` で公開する。資産として登録するのは、`SHA256SUMS` に列挙されたアーカイブ、`SHA256SUMS`、`container-image.txt` だけである。列挙が 6 件でなければ公開しない
 
 `SHA256SUMS` との照合だけでは、アーカイブと `SHA256SUMS` が一緒に差し替えられた場合を検出できません。
 署名の検証を加えることで、公開するアーカイブが attest の署名したものと同じであることを確かめます。
