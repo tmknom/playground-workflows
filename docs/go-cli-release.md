@@ -420,6 +420,7 @@ GitHub の Immutable Releases は、現時点では有効にしません。
 
 利用者は `gh attestation verify` で、配布物の生成元を確かめられます。
 Attestation は、検証する側が期待値を知っていて初めて意味を持つため、期待値を次のように定めます。
+利用者向けの手順は、[playground-workflows の Go CLI の節](../README.md#go-cli) に載せています。
 
 | 期待値 | 値 |
 |---|---|
@@ -447,6 +448,12 @@ gh attestation verify "oci://$(cat container-image.txt)" \
   --source-ref refs/tags/vX.Y.Z \
   --deny-self-hosted-runners
 ```
+
+署名したワークフローは、`--cert-identity` ではなく `--signer-workflow` で指定します。
+GitHub CLI v2.103.3 では、`--signer-workflow` は前方一致ではありませんでした。
+`release-go-cli.ym` のような途中までのパス、`.` を別の文字に変えたパス、`release-go-cli.yml@refs` のように ref の途中までを付けた値では、検証が失敗しました。
+渡したパスの直後に、証明書の SubjectAlternativeName の `@<ref>` が続く場合だけ一致すると考えられます。
+`--cert-identity` はタグまで含む値を渡す必要があり、タグの照合は `--source-ref` と重なります。
 
 Attestation の subject は Image Index の digest だけです。
 Index に含まれる `linux/amd64` や `linux/arm64` のマニフェストの digest を指定すると、Attestation が見つからず検証に失敗します。
@@ -502,6 +509,7 @@ Lambda リリースは直近のタグから次のバージョンを計算する�
 - **実行中のタグの付け替え**：Tag Rulesets でタグを保護していないため、実行中にタグを付け替えられる可能性がある。post-verify がタグの参照先を確認して検出する
 - **存在確認の誤判定**：preflight は GHCR を匿名で確認するため、パッケージが非公開になっていると既存のタグを「存在しない」と判定し、container がタグを上書きする可能性がある。エラーメッセージの文言で判定するため、`gh` や Docker Buildx の文言が変わると、存在しないバージョンでも preflight が止まる
 - **公開物の書き換え**：Immutable Release を採用していないため、公開後の資産とタグは書き換えから保護されていない
+- **作り直す前のビルドの Attestation**：利用者による検証はタグの名前を固定し、コミットを固定しない。[失敗時のやり直し](#失敗時のやり直し) で同じバージョンを作り直しても、前の実行が付けた Attestation は残るため、前のビルドのアーカイブやイメージも利用者の検証を通る。README の「保証しない内容」に書いている
 - **Linux 以外の OS での実行**：macOS と Windows のバイナリは、どの工程でも実行していない。通常 CI を用意するまでは、OS 固有の不具合を公開前に検出できない
 - **待機中の実行の取り消し**：`concurrency` の `queue` が `single` のため、リリースの実行中に2つ以上の実行が待機に入ると、先に待機していた実行が取り消される。取り消しは実行の一覧に残るため、気付いた時点で再実行する
 
