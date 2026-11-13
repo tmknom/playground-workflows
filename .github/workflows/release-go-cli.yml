@@ -227,3 +227,41 @@ jobs:
           subject-digest: ${{ steps.push.outputs.digest }}
           push-to-registry: true
           create-storage-record: false
+
+  # GitHub Release の公開は正式リリースの完了点のため、GHCR への公開と署名が成功してから行う
+  release:
+    needs: [attest, container]
+    if: ${{ github.actor_id == github.repository_owner_id && github.triggering_actor == github.repository_owner }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      # contents: write を持つため Checkout せず、受け取ったファイルをデータとして登録するだけにする
+      - name: Download
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-assets
+          path: ${{ runner.temp }}/release-assets
+
+      # 登録するのは、SHA256SUMS で照合したアーカイブ、SHA256SUMS、container-image.txt だけにする。
+      # --verify-tag はタグがなければ失敗させ、gh がタグを新しく作ることを防ぐ。
+      # タグがあれば --target は使われないため、タグの付け替えは検出できない。
+      # 同じバージョンの Release があれば gh release create が失敗し、既存の Release は書き換えない
+      - name: Publish release
+        working-directory: ${{ runner.temp }}/release-assets
+        env:
+          VERSION: ${{ github.ref_name }}
+          IMAGE_DIGEST: ${{ needs.container.outputs.digest }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          sha256sum -c SHA256SUMS
+          if [[ ! "${IMAGE_DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::The image digest is not in the form of sha256:<hex>"
+            exit 1
+          fi
+          echo "ghcr.io/${GITHUB_REPOSITORY}@${IMAGE_DIGEST}" > container-image.txt
+          mapfile -t archives < <(awk '{print $2}' SHA256SUMS)
+          gh release create "${VERSION}" --repo "${GITHUB_REPOSITORY}" --verify-tag --target "${GITHUB_SHA}" \
+            --title "${VERSION}" --generate-notes "${archives[@]}" SHA256SUMS container-image.txt
