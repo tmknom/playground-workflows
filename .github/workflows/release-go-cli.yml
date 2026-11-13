@@ -149,3 +149,68 @@ jobs:
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
           subject-checksums: ${{ runner.temp }}/release-assets/SHA256SUMS
+
+  # GHCR への公開は取り消しにくいため、来歴の署名が成功してから行う
+  container:
+    needs: [build, attest]
+    if: ${{ github.actor_id == github.repository_owner_id && github.triggering_actor == github.repository_owner }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      digest: ${{ steps.push.outputs.digest }}
+    steps:
+      # Dockerfile だけを取得する。リポジトリのコードは実行しない
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: /Dockerfile
+          sparse-checkout-cone-mode: false
+
+      - name: Download
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-assets
+          path: ${{ runner.temp }}/release-assets
+
+      # ビルドコンテキストには、配布アーカイブから取り出した Linux バイナリだけを置く
+      - name: Prepare build context
+        working-directory: ${{ runner.temp }}/release-assets
+        run: |
+          set -euo pipefail
+          sha256sum -c SHA256SUMS
+          for arch in amd64 arm64; do
+            mkdir -p "${RUNNER_TEMP}/context/${arch}"
+            tar -xzf "playground-workflows_${GITHUB_REF_NAME#v}_linux_${arch}.tar.gz" \
+              -C "${RUNNER_TEMP}/context/${arch}" playground-workflows
+          done
+
+      - name: Log in to GHCR
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      # ビルドの記録を Actions Artifact として残さない。ジョブ間で受け渡す Artifact は release-assets だけにする
+      - name: Build and push
+        id: push
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        env:
+          DOCKER_BUILD_RECORD_UPLOAD: false
+        with:
+          context: ${{ runner.temp }}/context
+          file: ${{ github.workspace }}/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ghcr.io/${{ github.repository }}:${{ github.ref_name }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ github.ref_name }}
