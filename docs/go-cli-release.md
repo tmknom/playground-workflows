@@ -41,7 +41,7 @@ SLSA の Build Level を名乗ることは目的にしません。
 `v0` のような形式外のタグやプレリリースのタグでは、ワークフローが起動しません。
 
 - **バージョンの正本**：Git タグである。ビルドはタグが指すコミット SHA（`GITHUB_SHA`）から行い、実行中に `main` の最新状態を解決し直さない
-- **起動者の制限**：最初のジョブの `if` で `github.actor_id == github.repository_owner_id` を要求する。後続のジョブは `needs` で連なるため、条件を満たさなければ一緒にスキップされる
+- **起動者の制限**：最初のジョブの `if` で `github.actor_id == github.repository_owner_id` と `github.triggering_actor == github.repository_owner` の両方を要求する。`github.actor` は再実行しても最初の実行者のままで、再実行はその権限で動くため、再実行した者を `github.triggering_actor` で確かめる。`triggering_actor` には ID がないため、ユーザー名で比べる。後続のジョブは `needs` で連なるため、条件を満たさなければ一緒にスキップされる
 - **タグの移動**：公開物を残したまま、タグを別のコミットへ移動しない。ソースを直す場合は新しいバージョンを使うか、[失敗時のやり直し](#失敗時のやり直し) の手順で公開物を削除してから作り直す
 - **正式リリースの完了点**：GitHub Release の公開である。タグや GHCR のイメージが存在しても、GitHub Release が公開されるまではリリース済みと扱わない
 
