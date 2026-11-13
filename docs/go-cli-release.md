@@ -88,7 +88,7 @@ GHCR への公開は、ビルドと配布アーカイブの確認、来歴証明
 
 | ジョブ | `needs` | `GITHUB_TOKEN` の権限 | ソースの Checkout |
 |---|---|---|---|
-| preflight | なし | `contents: read`、`packages: read` | あり |
+| preflight | なし | `contents: read` | あり（全履歴） |
 | test | preflight | `contents: read` | あり |
 | build | test | `contents: read` | あり（全履歴） |
 | attest | build | `id-token: write`、`attestations: write` | なし |
@@ -113,13 +113,21 @@ Action はトークンを引数で渡さなくても `github.token` を参照で
 リリースできない状態のタグで、テストやビルドの前に止めます。
 
 - タグの指すコミットが `origin/main` の履歴に含まれない場合は失敗する（`git merge-base --is-ancestor`）
-- 同じバージョンの GitHub Release が存在する場合は失敗する（`gh release view` の成否で判定）
-- GHCR に同じバージョンのタグが存在する場合は失敗する（`docker buildx imagetools inspect` の成否で判定）
+- 同じバージョンの GitHub Release が存在する場合は失敗する（`gh release view`）
+- GHCR に同じバージョンのタグが存在する場合は失敗する（`docker buildx imagetools inspect`）
 
-存在の確認はコマンドの成否だけで判定し、HTTP 404 とそれ以外のエラーを区別しません。
-認証や通信の障害も「存在しない」と判定して先へ進みますが、GitHub Release については release ジョブの `gh release create` が既存の Release を上書きせずに失敗します。
-GHCR については、この誤判定でイメージのタグが上書きされる可能性が残ります。
-検証用リポジトリでは削除してやり直せるため、この残余を受け入れています。
+存在しない場合も、認証や通信の障害の場合も、コマンドの終了コードは 1 です。
+終了コードだけで判定すると、障害を「存在しない」と誤判定して先へ進み、GHCR のタグを上書きしてしまいます。
+そのため、エラーメッセージが「存在しない」ことを示す場合（`release not found`、`ERROR: <参照>: not found`）だけを「存在しない」とし、それ以外の失敗では確認できなかったものとして止めます。
+`git merge-base` も同じく、祖先でない場合（終了コード 1）と、`origin/main` がないなどの失敗を分けて報告します。
+
+GHCR は、ログインせず、`packages: read` も与えずに匿名で確認します。
+匿名では、存在しないパッケージも `not found` になるため、パッケージが非公開になっていると既存のタグを検出できない可能性があります。
+パッケージが Public であることは verify-image と post-verify の前提でもあります。
+
+preflight は「Re-run all jobs」でも実行し直されます。
+container が GHCR に公開した後に失敗した実行は、全ジョブの再実行では preflight で止まります。
+「Re-run failed jobs」では成功済みの preflight は実行されないため、失敗したジョブから再開できます。
 
 ### test
 
@@ -368,7 +376,7 @@ GHCR への公開は、GitHub Release の公開と同義ではありません。
 | 失敗した位置 | 対応 |
 |---|---|
 | preflight、test、build、attest | 何も公開されていない。原因を直し、必要ならタグを削除して新しいコミットにタグを付け直す。ソースが変わらないなら失敗したジョブを再実行してよい |
-| container 以降 | GHCR にイメージがある。GHCR のバージョンを削除してから再実行するか、全体をやり直す |
+| container 以降 | GHCR にイメージがある。「Re-run failed jobs」で失敗したジョブから再実行する。「Re-run all jobs」は preflight で止まるため、GHCR のバージョンを削除してから実行する |
 | release 以降 | GitHub Release が公開されている可能性がある。下記の手順で全体をやり直す |
 
 同じバージョンを作り直すときは、次の3つを手動で削除してからタグをプッシュし直します。
@@ -492,7 +500,7 @@ Lambda リリースは直近のタグから次のバージョンを計算する�
 - **GitHub 基盤への依存**：署名、実行、公開のすべてが GitHub の基盤に依存しており、基盤全体の侵害には対抗できない
 - **タグ起点のワークフロー定義**：タグの指すコミットにあるワークフロー定義そのものが実行される。悪意のある定義が実行された後では、preflight は防御にならない。`main` の変更のレビューと、タグを作成できる者の限定に依存する
 - **実行中のタグの付け替え**：Tag Rulesets でタグを保護していないため、実行中にタグを付け替えられる可能性がある。post-verify がタグの参照先を確認して検出する
-- **存在確認の誤判定**：preflight は認証や通信の障害を「存在しない」と判定する。GHCR のタグが上書きされる可能性が残る
+- **存在確認の誤判定**：preflight は GHCR を匿名で確認するため、パッケージが非公開になっていると既存のタグを「存在しない」と判定し、container がタグを上書きする可能性がある。エラーメッセージの文言で判定するため、`gh` や Docker Buildx の文言が変わると、存在しないバージョンでも preflight が止まる
 - **公開物の書き換え**：Immutable Release を採用していないため、公開後の資産とタグは書き換えから保護されていない
 - **Linux 以外の OS での実行**：macOS と Windows のバイナリは、どの工程でも実行していない。通常 CI を用意するまでは、OS 固有の不具合を公開前に検出できない
 - **待機中の実行の取り消し**：`concurrency` の `queue` が `single` のため、リリースの実行中に2つ以上の実行が待機に入ると、先に待機していた実行が取り消される。取り消しは実行の一覧に残るため、気付いた時点で再実行する
