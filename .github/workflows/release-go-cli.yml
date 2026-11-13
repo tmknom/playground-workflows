@@ -432,3 +432,82 @@ jobs:
           fi
           gh release create "${VERSION}" --repo "${GITHUB_REPOSITORY}" --verify-tag --target "${GITHUB_SHA}" \
             --title "${VERSION}" --generate-notes "${archives[@]}" SHA256SUMS container-image.txt
+
+  # 公開した GitHub Release と GHCR のイメージを取得し直し、正規の成果物と照合する。このジョブの成功をもってリリースの完了とする。
+  # 失敗した時点で Release は公開済みだが、自動では取り消さない
+  post-verify:
+    needs: [container, release]
+    if: ${{ github.actor_id == github.repository_owner_id && github.triggering_actor == github.repository_owner }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    # パッケージは Public のため、GHCR へのログインと packages: read は要らない。
+    # attestations: read は、gh attestation verify が GitHub の Attestation API から取得するのに要る
+    permissions:
+      contents: read
+      attestations: read
+    steps:
+      - name: Download
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-assets
+          path: ${{ runner.temp }}/release-assets
+
+      - name: Verify release
+        env:
+          VERSION: ${{ github.ref_name }}
+          IMAGE_DIGEST: ${{ needs.container.outputs.digest }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          expected="${RUNNER_TEMP}/release-assets"
+          published="${RUNNER_TEMP}/published"
+          image="ghcr.io/${GITHUB_REPOSITORY}"
+
+          # Release が公開済みで、タグがビルドしたコミットを指したままである。
+          # コミットの API に refs/tags/ 付きの ref を渡すと、軽量タグでも注釈付きタグでも、指しているコミットの SHA が得られる。
+          # タグ名だけを渡さないのは、同じ名前のブランチがあると参照先が曖昧になるため
+          draft="$(gh release view "${VERSION}" --repo "${GITHUB_REPOSITORY}" --json isDraft --jq .isDraft)"
+          if [[ "${draft}" != "false" ]]; then
+            echo "::error::The release ${VERSION} is still a draft"
+            exit 1
+          fi
+          sha="$(gh api "repos/${GITHUB_REPOSITORY}/commits/refs/tags/${VERSION}" --jq .sha)"
+          if [[ "${sha}" != "${GITHUB_SHA}" ]]; then
+            echo "::error::The tag ${VERSION} points to ${sha}, but ${GITHUB_SHA} is expected"
+            exit 1
+          fi
+          echo "The release ${VERSION} is published and the tag points to ${sha}"
+
+          # 公開された資産が、正規の成果物に release と同じ方法で作った container-image.txt を加えたものと過不足なく一致する
+          echo "${image}@${IMAGE_DIGEST}" > "${expected}/container-image.txt"
+          gh release download "${VERSION}" --repo "${GITHUB_REPOSITORY}" --dir "${published}"
+          diff -r "${expected}" "${published}"
+          echo "Release assets match the canonical artifacts:"
+          ls -1 "${published}"
+
+          # GHCR のバージョンタグが、container-image.txt に記録した digest を指している
+          got="$(docker buildx imagetools inspect "${image}:${VERSION}" --format '{{.Manifest.Digest}}')"
+          if [[ "${got}" != "${IMAGE_DIGEST}" ]]; then
+            echo "::error::${image}:${VERSION} points to ${got}, but ${IMAGE_DIGEST} is expected"
+            exit 1
+          fi
+          echo "${image}:${VERSION} points to ${got}"
+
+          # 公開された資産から、利用者と同じ手順で来歴を検証できる。
+          # 資産の名前は diff -r で照合済みのため、subject の名前は確かめない。
+          # gh attestation verify は TTY がないと成功しても何も出力しないため、結果を出力する
+          cd "${published}"
+          for file in ./*.tar.gz ./*.zip; do
+            gh attestation verify "${file}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/release-go-cli.yml" \
+              --source-ref "${GITHUB_REF}" \
+              --deny-self-hosted-runners
+            echo "Attestation verified: ${file#./}"
+          done
+          gh attestation verify "oci://$(cat container-image.txt)" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/release-go-cli.yml" \
+            --source-ref "${GITHUB_REF}" \
+            --deny-self-hosted-runners
+          echo "Attestation verified: $(cat container-image.txt)"

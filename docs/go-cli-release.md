@@ -95,7 +95,7 @@ GHCR への公開は、ビルドと配布アーカイブの確認、来歴証明
 | container | build、attest | `contents: read`、`packages: write`、`id-token: write`、`attestations: write` | あり（Dockerfile だけを使う） |
 | verify-image | container | `attestations: read` | なし |
 | release | attest、container、verify-image | `contents: write`、`attestations: read` | なし |
-| post-verify | container、release | `contents: read`、`packages: read`、`attestations: read` | なし |
+| post-verify | container、release | `contents: read`、`attestations: read` | なし |
 
 ワークフロー全体の `permissions` は `{}` とし、権限は各ジョブに明示します。
 Action はトークンを引数で渡さなくても `github.token` を参照できる場合があるため、権限の付与そのものを絞ります。
@@ -227,13 +227,21 @@ Draft と公開の間に挟む確認がないためです。
 このジョブの成功をもって、リリースの完了とします。
 
 - Release が Draft ではない
-- コミットの API にタグ名を渡して得た SHA が `GITHUB_SHA` と一致する（軽量タグと注釈付きタグのどちらでも、指しているコミットの SHA が得られる）
+- コミットの API に `refs/tags/vX.Y.Z` を渡して得た SHA が `GITHUB_SHA` と一致する（軽量タグと注釈付きタグのどちらでも、指しているコミットの SHA が得られる。タグ名だけを渡すと、同じ名前のブランチがあるときに参照先が曖昧になる）
 - `gh release download` で取得した資産と、正規の成果物に `container-image.txt` を加えたものが `diff -r` で一致する。資産の過不足と内容の違いを同時に検出する
 - GHCR の `vX.Y.Z` タグが、`container-image.txt` に記録した digest を指している
 - 取得した資産と `container-image.txt` の参照を使い、[利用者による検証](#利用者による検証) と同じコマンドで来歴を検証できる
 
+来歴の検証には、release と verify-image が付けている `--signer-digest` と `--source-digest` を付けません。
+目的は、利用者向けの手順が公開済みの資産で通ることを確かめることにあるためです。
+コミットとの対応は、`diff -r` で資産が release の検証したファイルと一致し、タグが `GITHUB_SHA` を指すことで確かめています。
+
+verify-image と同じく、GHCR にはログインせず、`packages: read` も与えません。
+
 このジョブが失敗した時点で、GitHub Release はすでに公開されています。
 自動では取り消さず、失敗の内容を見てから削除してやり直すかを判断します。
+`release-assets` の保持期間は 1 日のため、それを過ぎると post-verify だけを再実行できません。
+その場合は [失敗時のやり直し](#失敗時のやり直し) の手順で全体をやり直します。
 
 ## 成果物とジョブ間の受け渡し
 
