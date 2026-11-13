@@ -266,9 +266,91 @@ jobs:
           push-to-registry: true
           create-storage-record: false
 
-  # GitHub Release の公開は正式リリースの完了点のため、GHCR への公開と署名が成功してから行う
+  # GHCR に公開したイメージを digest で取得し、runner の CPU ごとに検証する。
+  # Image Index から runner の CPU に合うイメージが選ばれるため、amd64 と arm64 の runner で1回ずつ実行する
+  verify-image:
+    needs: [container]
+    if: ${{ github.actor_id == github.repository_owner_id && github.triggering_actor == github.repository_owner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {arch: amd64, runner: ubuntu-24.04}
+          - {arch: arm64, runner: ubuntu-24.04-arm}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 10
+    # パッケージは Public のため、GHCR へのログインと packages: read は要らない。
+    # attestations: read は、gh attestation verify が GitHub の Attestation API から取得するのに要る
+    permissions:
+      attestations: read
+    steps:
+      - name: Download
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: release-assets
+          path: ${{ runner.temp }}/release-assets
+
+      - name: Verify image
+        working-directory: ${{ runner.temp }}/release-assets
+        env:
+          ARCH: ${{ matrix.arch }}
+          IMAGE_DIGEST: ${{ needs.container.outputs.digest }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          sha256sum -c SHA256SUMS
+          if [[ ! "${IMAGE_DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::The image digest is not in the form of sha256:<hex>"
+            exit 1
+          fi
+          image="ghcr.io/${GITHUB_REPOSITORY}@${IMAGE_DIGEST}"
+
+          # QEMU によるエミュレーションで別の CPU のイメージを確かめないよう、runner の CPU が matrix の arch と一致することを確かめる
+          host="$(docker version --format '{{.Server.Arch}}')"
+          if [[ "${host}" != "${ARCH}" ]]; then
+            echo "::error::The runner is ${host}, but ${ARCH} is expected"
+            exit 1
+          fi
+
+          # イメージを実行する前に、来歴とバイナリを確かめる。
+          # 検証するのは Image Index の digest である。プラットフォーム別のマニフェストには Attestation がない。
+          # gh attestation verify は TTY がないと成功しても何も出力しないため、結果を出力する
+          gh attestation verify "oci://${image}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/release-go-cli.yml" \
+            --signer-digest "${GITHUB_SHA}" \
+            --source-ref "${GITHUB_REF}" \
+            --source-digest "${GITHUB_SHA}" \
+            --deny-self-hosted-runners
+          echo "Attestation verified: ${image}"
+
+          # イメージ内のバイナリが、配布アーカイブ内のバイナリとバイト単位で一致することを確かめる。
+          # 実行ユーザーは、プラットフォームを指定して作ったコンテナの設定から読む
+          cid="$(docker create --platform "linux/${ARCH}" "${image}")"
+          docker cp "${cid}:/usr/local/bin/playground-workflows" "${RUNNER_TEMP}/from-image"
+          user="$(docker container inspect --format '{{.Config.User}}' "${cid}")"
+          docker rm "${cid}"
+          mkdir "${RUNNER_TEMP}/from-archive"
+          tar -xzf "playground-workflows_${version}_linux_${ARCH}.tar.gz" \
+            -C "${RUNNER_TEMP}/from-archive" playground-workflows
+          cmp "${RUNNER_TEMP}/from-image" "${RUNNER_TEMP}/from-archive/playground-workflows"
+          echo "linux_${ARCH} binary matches the archive"
+          if [[ "${user}" != "nonroot:nonroot" ]]; then
+            echo "::error::The image runs as ${user}, but nonroot:nonroot is expected"
+            exit 1
+          fi
+
+          got="$(docker run --rm --platform "linux/${ARCH}" "${image}" --version)"
+          if [[ "${got}" != "${version}" ]]; then
+            echo "::error::--version printed ${got}, but ${version} is expected"
+            exit 1
+          fi
+          echo "linux_${ARCH} image --version: ${got}"
+
+  # GitHub Release の公開は正式リリースの完了点のため、GHCR に公開したイメージの検証が成功してから行う
   release:
-    needs: [attest, container]
+    needs: [attest, container, verify-image]
     if: ${{ github.actor_id == github.repository_owner_id && github.triggering_actor == github.repository_owner }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
