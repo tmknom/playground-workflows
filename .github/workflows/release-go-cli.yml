@@ -350,6 +350,25 @@ jobs:
       - name: Set up Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
+      # 「Re-run failed jobs」では preflight が実行されないため、公開した後に失敗したこのジョブを再実行すると、同じタグへ再び公開してしまう。
+      # 上書きを防ぐよう、公開の直前にもタグの存在を確かめる。
+      # preflight と違いログインした後に確かめるため、パッケージが非公開になっていても既存のタグを検出できる
+      - name: Verify no image exists
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          ref="ghcr.io/${GITHUB_REPOSITORY}:${VERSION}"
+          if err="$(docker buildx imagetools inspect "${ref}" 2>&1 > /dev/null)"; then
+            echo "::error::The image tag ${VERSION} already exists"
+            exit 1
+          fi
+          if [[ "${err}" != "ERROR: ${ref}: not found" ]]; then
+            echo "::error::Could not check the image tag ${VERSION}: ${err}"
+            exit 1
+          fi
+          echo "The image tag ${VERSION} does not exist"
+
       # ビルドの記録を Actions Artifact として残さない。ジョブ間で受け渡す Artifact は release-assets だけにする
       - name: Build and push
         id: push
@@ -522,7 +541,7 @@ jobs:
 
       # 登録するのは、Verify assets で照合と来歴の検証をしたアーカイブと SBOM、SHA256SUMS、container-image.txt だけにする。
       # --verify-tag はタグがなければ失敗させ、gh がタグを新しく作ることを防ぐ。
-      # タグがあれば --target は使われないため、タグの付け替えは検出できない。
+      # タグがあれば --target はタグの作成に使われず、Release のメタデータに記録されるだけのため、タグの参照先は公開の直前に別に確かめる。
       # 同じバージョンの Release があれば gh release create が失敗し、既存の Release は書き換えない
       - name: Publish release
         working-directory: ${{ runner.temp }}/release-assets
@@ -543,10 +562,39 @@ jobs:
             echo "::error::SHA256SUMS lists ${#files[@]} files, but 12 are expected"
             exit 1
           fi
-          gh release create "${VERSION}" --repo "${GITHUB_REPOSITORY}" --verify-tag --target "${GITHUB_SHA}" \
-            --title "${VERSION}" --generate-notes "${files[@]}" SHA256SUMS container-image.txt
+          # Release はタグの指すコミットに付くため、タグが付け替えられていればビルドと異なるコミットに付いてしまう。
+          # 確かめた直後の付け替えまでは防げず、post-verify が公開後にもう一度確かめる
+          sha="$(gh api "repos/${GITHUB_REPOSITORY}/commits/refs/tags/${VERSION}" --jq .sha)"
+          if [[ "${sha}" != "${GITHUB_SHA}" ]]; then
+            echo "::error::The tag ${VERSION} points to ${sha}, but ${GITHUB_SHA} is expected"
+            exit 1
+          fi
 
-  # 公開した GitHub Release と GHCR のイメージを取得し直し、正規の成果物と照合する。このジョブの成功をもってリリースの完了とする。
+          # 前の実行の gh release create が途中で失敗すると、資産の一部だけを持つ Draft が残る可能性がある。
+          # Draft があっても gh release create が失敗するとは限らないため、Draft も含めて同じタグの Release がないことを確かめる
+          ids="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/releases" --jq ".[] | select(.tag_name == \"${VERSION}\") | .id")"
+          if [[ -n "${ids}" ]]; then
+            echo "::error::A release for ${VERSION} already exists, including drafts: ${ids//$'\n'/ }"
+            exit 1
+          fi
+
+          # API の既定では公開した Release が Latest になり、後から古いバージョンを公開すると Latest を奪う。
+          # 既存の Latest のほうが大きいバージョンなら、Latest にしない
+          latest_flag=--latest
+          if latest="$(gh api "repos/${GITHUB_REPOSITORY}/releases/latest" --jq .tag_name 2> "${RUNNER_TEMP}/latest.err")"; then
+            if [[ "$(printf '%s\n' "${latest}" "${VERSION}" | sort -V | tail -n 1)" != "${VERSION}" ]]; then
+              latest_flag=--latest=false
+            fi
+          elif ! grep -q "(HTTP 404)" "${RUNNER_TEMP}/latest.err"; then
+            echo "::error::Could not check the latest release: $(cat "${RUNNER_TEMP}/latest.err")"
+            exit 1
+          fi
+          echo "Latest release: ${latest:-none}, publishing ${VERSION} with ${latest_flag}"
+
+          gh release create "${VERSION}" --repo "${GITHUB_REPOSITORY}" --verify-tag --target "${GITHUB_SHA}" \
+            "${latest_flag}" --title "${VERSION}" --generate-notes "${files[@]}" SHA256SUMS container-image.txt
+
+  # 公開した GitHub Release と GHCR のイメージを取得し直し、正規の成果物と照合する。このジョブの成功をもってワークフローの成功とする。
   # 失敗した時点で Release は公開済みだが、自動では取り消さない
   post-verify:
     needs: [container, release]

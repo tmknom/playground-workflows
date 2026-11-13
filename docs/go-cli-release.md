@@ -7,7 +7,8 @@
 
 | 項目 | 方針 |
 |---|---|
-| リポジトリ | GitHub Free の Public リポジトリ。技術検証用である |
+| リポジトリ | GitHub Free の Public リポジトリ。リリースワークフローの動作を検証するためのものである |
+| 設計の位置づけ | 個人開発の Go CLI の本番リリースに適用することを前提とする。検証用のリポジトリであることを、品質の確認を省く理由にしない |
 | 実行基盤 | GitHub-hosted runners |
 | 配布する CLI | リポジトリ直下の `main.go`。バイナリ名は `playground-workflows` |
 | 配布物 | Linux / macOS / Windows × amd64 / arm64 の 6 種類の配布アーカイブと、アーカイブごとの SBOM（SPDX JSON） |
@@ -48,6 +49,7 @@ SLSA の Build Level を名乗ることは目的にしません。
 - **起動者の制限**：すべてのジョブの `if` で `github.actor_id == github.repository_owner_id` と `github.triggering_actor == github.repository_owner` の両方を要求する。`github.actor` は再実行しても最初の実行者のままで、再実行はその権限で動くため、再実行した者を `github.triggering_actor` で確かめる。`triggering_actor` には ID がないため、ユーザー名で比べる。最初のジョブだけに置かないのは、「Re-run failed jobs」では成功済みのジョブが実行し直されず、その `if` も評価し直されないためである。必須なのは権限を持つジョブ（attest、container、release）で、読み取り専用のジョブにも置くのは、ジョブごとに要否を判断せずに済む規則にするためである
 - **タグの移動**：公開物を残したまま、タグを別のコミットへ移動しない。ソースを直す場合は新しいバージョンを使うか、[失敗時のやり直し](#失敗時のやり直し) の手順で公開物を削除してから作り直す
 - **正式リリースの完了点**：GitHub Release の公開である。タグや GHCR のイメージが存在しても、GitHub Release が公開されるまではリリース済みと扱わない
+- **ワークフローの成功**：post-verify までのすべてのジョブが成功した状態である。正式リリースの完了点とは別に判定するため、post-verify が失敗した場合は「公開済みだが、公開後の照合に失敗した」状態になる
 
 CLI は `--version` で、ビルド時に `-X main.version=<バージョン>` で埋め込んだ値を出力します。
 値は先頭の `v` を除いた形（`1.2.3`）で、配布アーカイブのファイル名に入るバージョンと同じです。
@@ -125,17 +127,18 @@ GHCR は、ログインせず、`packages: read` も与えずに匿名で確認�
 匿名では、存在しないパッケージも `not found` になるため、パッケージが非公開になっていると既存のタグを検出できない可能性があります。
 パッケージが Public であることは verify-image と post-verify の前提でもあります。
 
-preflight は「Re-run all jobs」でも実行し直されます。
-container が GHCR に公開した後に失敗した実行は、全ジョブの再実行では preflight で止まります。
-「Re-run failed jobs」では成功済みの preflight は実行されないため、失敗したジョブから再開できます。
+preflight は「Re-run all jobs」では実行し直されますが、「Re-run failed jobs」では成功済みのため実行されません。
+GHCR のタグの存在は、container も公開の直前にログインした状態で確かめます（[container](#container)）。
 
 ### test
 
 `go mod download`、`go mod verify`、`go vet ./...`、`go test -count=1 ./...` を実行します。
 `GOTOOLCHAIN=local` と `GOFLAGS=-mod=readonly` を指定し、テスト中に Go のツールチェーンや依存の定義が切り替わらないようにします。
 
-プルリクエストで `go test` を実行する通常 CI はこのリポジトリにないため、このジョブがリリース前の唯一のテストです。
-プルリクエストで動く `verify-goreleaser.yml` は、GoReleaser の設定を snapshot ビルドで確かめるだけです。
+コード変更に対する包括的な品質の検証は、プルリクエストで動く通常 CI の役割です。
+このジョブは、リリースするコミットそのものについて、重要な品質条件を通常 CI とは独立に確かめ直します。
+タグはプルリクエストで検証したコミットとは別のコミットに付けられ得るため、通常 CI を整備した後もこのジョブを残します。
+現時点では、プルリクエストで `go test` を実行する通常 CI はまだありません（[将来の拡張](#将来の拡張)）。
 
 ### build
 
@@ -175,9 +178,19 @@ darwin と windows は、`ldflags` が全ターゲットで共通であるとい
 
 1. `release-assets` をダウンロードし、`sha256sum -c SHA256SUMS` で照合する
 2. Linux 向けアーカイブ 2 件から `playground-workflows` を取り出し、`<arch>/playground-workflows` の形で専用のビルドコンテキストに置く
-3. Docker Buildx で `linux/amd64,linux/arm64` のイメージをビルドし、`ghcr.io/tmknom/playground-workflows:vX.Y.Z` として公開する
-4. `docker/build-push-action` が出力した Image Index の digest に Artifact Attestation を付け、GHCR にも保存する
-5. digest をジョブの出力として後続ジョブへ渡す
+3. GHCR にログインし、同じバージョンのタグがないことを preflight と同じ判定で確かめる
+4. Docker Buildx で `linux/amd64,linux/arm64` のイメージをビルドし、`ghcr.io/tmknom/playground-workflows:vX.Y.Z` として公開する
+5. `docker/build-push-action` が出力した Image Index の digest に Artifact Attestation を付け、GHCR にも保存する
+6. digest をジョブの出力として後続ジョブへ渡す
+
+公開の直前にもタグの存在を確かめるのは、公開後の Attestation の生成などでこのジョブが失敗したとき、「Re-run failed jobs」で同じタグへ再び公開するのを防ぐためです。
+「Re-run failed jobs」では成功済みの preflight が実行されないため、preflight の確認だけでは防げません。
+BuildKit が既定で付ける Provenance にはビルドの時刻などが記録されるため、再び公開すると Image Index の digest が変わり、タグが別のイメージを指す可能性があります。
+preflight と違ってログインした後に確かめるため、パッケージが非公開になっていても既存のタグを検出できます。
+
+公開した後に Attestation の生成で失敗すると、Attestation のないイメージがタグ付きで GHCR に残ります。
+再実行はこの確認で止まるため、そのイメージを再利用して証明を付け直すことはしません。
+GitHub Release は公開されておらず、このイメージを参照する `container-image.txt` もないため、GHCR のバージョンを削除するか、新しいバージョンでやり直します。
 
 イメージの設計は [コンテナイメージ](#コンテナイメージ)、証明の設計は [来歴証明](#来歴証明) に記載します。
 
@@ -209,7 +222,10 @@ GHCR にはログインせず、匿名で取得します。
 2. 12 件のそれぞれで `gh attestation verify` を実行する。期待値は、リポジトリ、署名したワークフロー（`release-go-cli.yml`）、`--signer-digest` と `--source-digest` に `GITHUB_SHA`、`--source-ref` に `GITHUB_REF` である。`gh attestation verify` はファイルの digest だけで Attestation を探すため、`--format json` の出力から、ファイル名と digest の組が署名された subject に含まれることも確かめる
 3. container の出力した digest が `sha256:<64 桁の 16 進数>` の形であることを確かめる
 4. `ghcr.io/tmknom/playground-workflows@sha256:<digest>` を1行で書いた `container-image.txt` を作る
-5. `gh release create <タグ> --verify-tag --target <GITHUB_SHA> --title <タグ> --generate-notes` で公開する。資産として登録するのは、`SHA256SUMS` に列挙されたアーカイブと SBOM、`SHA256SUMS`、`container-image.txt` だけである。列挙が 12 件でなければ公開しない
+5. コミットの API に `refs/tags/vX.Y.Z` を渡して得た SHA が `GITHUB_SHA` と一致することを確かめる
+6. Draft を含めて、同じタグの Release がないことを確かめる
+7. 現在の「Latest」の Release のバージョンと比べ、公開するバージョンのほうが大きければ `--latest`、小さければ `--latest=false` を選ぶ
+8. `gh release create <タグ> --verify-tag --target <GITHUB_SHA> <手順 7 のフラグ> --title <タグ> --generate-notes` で公開する。資産として登録するのは、`SHA256SUMS` に列挙されたアーカイブと SBOM、`SHA256SUMS`、`container-image.txt` だけである。列挙が 12 件でなければ公開しない
 
 `SHA256SUMS` との照合だけでは、アーカイブと `SHA256SUMS` が一緒に差し替えられた場合を検出できません。
 署名の検証を加えることで、公開するアーカイブが、このワークフローによって同じコミットとタグで署名されたものであることを確かめます。
@@ -219,22 +235,30 @@ subject の名前を確かめるのは、署名されたアーカイブ同士で
 登録するファイルをディレクトリの中身すべてにしないのは、受け渡す Artifact の対象が将来広がったときに、照合も署名もしていないファイルが黙って公開されるのを防ぐためです。
 
 `--verify-tag` は、タグが存在しないときに `gh` がタグを新しく作ることを防ぎます。
-`--target` は Release のメタデータに記録するコミットを `GITHUB_SHA` にするためのもので、指定しなければ既定ブランチの名前が記録されます。
-タグが存在するときは Release がタグの指すコミットに付くため、`--target` ではタグの付け替えを検出できません。
-同じバージョンの Release がすでにあれば `gh release create` が失敗し、既存の Release は書き換えません。
+`--target` は、タグが存在するときはタグの作成に使われず、Release のメタデータ（`target_commitish`）に記録されるだけです。
+指定しなければ既定ブランチの名前が記録されるため、`GITHUB_SHA` を記録するよう指定します。
+Release はタグの指すコミットに付くため、`--target` ではタグの付け替えを検出できません。
+そのため、公開の直前にタグの参照先を確かめます。
+確かめた直後の付け替えまでは防げないため、post-verify が公開後にもう一度確かめます。
+同じバージョンの公開済みの Release がすでにあれば `gh release create` が失敗し、既存の Release は書き換えません。
 
-公開した Release は、バージョンの大小にかかわらず「Latest」になります。
-正式なリリースでは最も大きいバージョンを公開するため、この挙動を変えません。
-動作確認で既存より小さい `v0.0.N` を公開すると、削除するまでの間は確認用の Release が「Latest」になります。
-削除すると、「Latest」は既存の最も新しい Release に戻ります。
+REST API の `make_latest` は、新しく公開した Release では既定で `true` です。
+既定のままだと、大きいバージョンを公開した後に小さいバージョンを公開したとき（失敗した古い実行を後から再実行した場合など）、小さいほうが「Latest」を奪います。
+そのため、現在の「Latest」と `sort -V` で比べ、公開するバージョンが小さければ `--latest=false` を渡します。
+動作確認で既存より小さい `v0.0.N` を公開しても、「Latest」は変わりません。
+「Latest」の Release は Lambda リリースと共有するため、比べる相手は Lambda リリースの場合もあります。
 
-Draft を作ってから公開する2段階にはしません。
+Draft を確認してから公開する独立した工程は設けません。
 Draft と公開の間に挟む確認がないためです。
+ただし、資産を指定した `gh release create` は、内部で Draft を作り、資産をアップロードしてから公開します。
+途中で失敗すると、資産の一部だけを持つ Draft が残る可能性があります。
+Draft があっても `gh release create` が失敗するとは限らないため、公開の前に Draft を含めて同じタグの Release がないことを確かめます。
+post-verify も、Release が Draft でないことを確かめます。
 
 ### post-verify
 
 公開した GitHub Release と GHCR のイメージを取得し直し、ワークフローが生成した正規の成果物と照合します。
-このジョブの成功をもって、リリースの完了とします。
+このジョブの成功をもって、ワークフローの成功とします（[リリースの起点とバージョン](#リリースの起点とバージョン)）。
 
 - Release が Draft ではない
 - コミットの API に `refs/tags/vX.Y.Z` を渡して得た SHA が `GITHUB_SHA` と一致する（軽量タグと注釈付きタグのどちらでも、指しているコミットの SHA が得られる。タグ名だけを渡すと、同じ名前のブランチがあるときに参照先が曖昧になる）
@@ -313,6 +337,8 @@ SBOM の記載内容は、アーカイブ内のバイナリに埋め込まれた
 依存の整合性はテストの段階で `go mod verify` が確かめます。
 
 Go のバージョンは `go.mod` の `go` 行で固定し、`actions/setup-go` に `go-version-file: go.mod` を渡します。
+固定が成り立つのは、`go` 行がパッチバージョンまで書かれ（`1.27.0` など）、`toolchain` 行がない場合です。
+パッチバージョンを省くと `actions/setup-go` が利用できるパッチバージョンを解決し、`toolchain` 行があればそちらが優先されます。
 `GOTOOLCHAIN=local` により、ビルド中に別のツールチェーンを取得しません。
 `actions/setup-go` のキャッシュは、同じリポジトリの他のワークフローも書き込めるため無効にします。
 
@@ -384,7 +410,8 @@ GHCR への公開は、GitHub Release の公開と同義ではありません。
 | 失敗した位置 | 対応 |
 |---|---|
 | preflight、test、build、attest | 何も公開されていない。原因を直し、必要ならタグを削除して新しいコミットにタグを付け直す。ソースが変わらないなら失敗したジョブを再実行してよい |
-| container 以降 | GHCR にイメージがある。「Re-run failed jobs」で失敗したジョブから再実行する。「Re-run all jobs」は preflight で止まるため、GHCR のバージョンを削除してから実行する |
+| container | GHCR にイメージがある可能性がある。公開前に失敗したなら「Re-run failed jobs」で再実行してよい。公開後に失敗したなら、再実行は公開直前の確認で止まるため、GHCR のバージョンを削除してから再実行するか、新しいバージョンでやり直す |
+| verify-image | GHCR にイメージがある。「Re-run failed jobs」では container が実行されず、公開済みのイメージをそのまま検証し直す。「Re-run all jobs」は preflight で止まるため、GHCR のバージョンを削除してから実行する |
 | release 以降 | GitHub Release が公開されている可能性がある。下記の手順で全体をやり直す |
 
 同じバージョンを作り直すときは、次の3つを手動で削除してからタグをプッシュし直します。
@@ -492,7 +519,7 @@ Lambda リリースは直近のタグから次のバージョンを計算する�
 - **Action**：`uses` はすべて完全なコミット SHA で固定し、行末のコメントにバージョンを書く。更新は Dependabot（`github-actions`）に任せる
 - **GoReleaser**：`goreleaser/goreleaser-action` の `version` に、GoReleaser OSS の正確なバージョンを指定する。`install-only: true` でインストールだけを行い、実行はシェルから明示的に行う
 - **Syft**：GitHub Releases から linux_amd64 のアーカイブを取得し、ワークフローに書いた SHA-256 と照合してから使う。インストール用の Action（`anchore/sbom-action/download-syft`）は使わない。Action の SHA で固定できるのは Action のコードだけで、Action が実行時に取得する Syft のバイト列は固定できないためである。Dependabot では更新できないため、版とハッシュは手動で更新し、release-go-cli.yml と verify-goreleaser.yml を同時に変える
-- **Go**：`go.mod` の `go` 行で固定する
+- **Go**：`go.mod` の `go` 行にパッチバージョンまで書いて固定する（[ビルドの設定](#ビルドの設定)）
 - **ベースイメージ**：Dockerfile の `FROM` に digest で固定する
 
 固定する値は、追加や更新のたびに公式のリリース情報で確認します。
@@ -517,8 +544,8 @@ Lambda リリースは直近のタグから次のバージョンを計算する�
 - **build の実行環境の侵害**：attest は build の出力に署名するため、build が侵害されていればその出力にも正しい署名が付く
 - **GitHub 基盤への依存**：署名、実行、公開のすべてが GitHub の基盤に依存しており、基盤全体の侵害には対抗できない
 - **タグ起点のワークフロー定義**：タグの指すコミットにあるワークフロー定義そのものが実行される。悪意のある定義が実行された後では、preflight は防御にならない。`main` の変更のレビューと、タグを作成できる者の限定に依存する
-- **実行中のタグの付け替え**：Tag Rulesets でタグを保護していないため、実行中にタグを付け替えられる可能性がある。post-verify がタグの参照先を確認して検出する
-- **存在確認の誤判定**：preflight は GHCR を匿名で確認するため、パッケージが非公開になっていると既存のタグを「存在しない」と判定し、container がタグを上書きする可能性がある。エラーメッセージの文言で判定するため、`gh` や Docker Buildx の文言が変わると、存在しないバージョンでも preflight が止まる
+- **実行中のタグの付け替え**：Tag Rulesets でタグを保護していないため、実行中にタグを付け替えられる可能性がある。release が公開の直前に、post-verify が公開後にタグの参照先を確認するが、確認の直後の付け替えは防げない
+- **存在確認の誤判定**：preflight は GHCR を匿名で確認するため、パッケージが非公開になっていると既存のタグを「存在しない」と判定する可能性がある。container はログインした後にもう一度確かめるため、この場合も上書きの前に止まる。エラーメッセージの文言で判定するため、`gh` や Docker Buildx の文言が変わると、存在しないバージョンでも preflight や container が止まる
 - **公開物の書き換え**：Immutable Release を採用していないため、公開後の資産とタグは書き換えから保護されていない
 - **作り直す前のビルドの Attestation**：利用者による検証はタグの名前を固定し、コミットを固定しない。[失敗時のやり直し](#失敗時のやり直し) で同じバージョンを作り直しても、前の実行が付けた Attestation は残るため、前のビルドのアーカイブやイメージも利用者の検証を通る。README の「保証しない内容」に書いている
 - **Linux 以外の OS での実行**：macOS と Windows のバイナリは、どの工程でも実行していない。通常 CI を用意するまでは、OS 固有の不具合を公開前に検出できない
@@ -533,7 +560,7 @@ Lambda リリースは直近のタグから次のバージョンを計算する�
 | OS matrix の通常 CI | OS 固有の処理がコードに入ったとき | プルリクエストで、Linux / macOS / Windows の runner で `go test` を実行する |
 | SBOM Attestation | `gh attestation verify` だけで、SBOM がどのアーカイブを記述しているかまで確かめたいとき | `actions/attest` の `sbom-path` で、アーカイブの digest を subject、SBOM を predicate とする Attestation を付ける。1回の呼び出しで渡せる SBOM は1つのため、アーカイブごとに呼び出す。現在は、SBOM 自体の来歴と、SBOM に記録したアーカイブの SHA-256 で対応を確かめる |
 | コンテナイメージの SBOM | 提供を求められたとき | 格納するバイナリは配布アーカイブと同じため、アーカイブの SBOM で代えられないかを先に判断する |
-| `govulncheck` | 外部のモジュールへの依存が増えたとき | test ジョブで実行し、検出があれば止める。通常 CI を先に用意するかもあわせて判断する |
+| `govulncheck` | 外部のモジュールへの依存が増えたとき | 通常 CI と定期実行で既知の脆弱性を検出し、結果からリスクを評価する。リリースワークフローには加えない。脆弱性を減らすリリースまで止めないよう、検出の有無をリリースの必須条件にしない |
 | 再ビルドによる再現性の確認 | Attestation と実行確認に加えて必要と判断したとき | 別の runner で再ビルドし、正規の `SHA256SUMS` のアーカイブの行で照合する。SBOM は生成のたびに変わるため照合から外す。アーカイブ内のファイルの時刻、所有者、権限の固定が必要になる可能性がある |
 | Immutable Release | 削除を伴う試行が不要になったとき（Lambda リリースも含む） | Immutable Releases と Tag Rulesets を有効にし、post-verify と利用者向けの手順に `gh release verify` を加える |
 | deb / rpm / apk | 配布を求められたとき | GoReleaser の `nfpms` を第一候補とし、build が生成したバイナリを再コンパイルせずに格納する |
