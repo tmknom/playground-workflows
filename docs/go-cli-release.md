@@ -195,13 +195,23 @@ amd64 と arm64 の runner で1回ずつ実行し、Image Index から runner �
 2. 配布アーカイブ 6 件のそれぞれで `gh attestation verify` を実行する。期待値は、リポジトリ、署名したワークフロー（`release-go-cli.yml`）、`--signer-digest` と `--source-digest` に `GITHUB_SHA`、`--source-ref` に `GITHUB_REF` である
 3. container の出力した digest が `sha256:<64 桁の 16 進数>` の形であることを確かめる
 4. `ghcr.io/tmknom/playground-workflows@sha256:<digest>` を1行で書いた `container-image.txt` を作る
-5. `gh release create <タグ> --verify-tag --title <タグ> --generate-notes` で、全ファイルを資産として登録して公開する
+5. `gh release create <タグ> --verify-tag --target <GITHUB_SHA> --title <タグ> --generate-notes` で公開する。資産として登録するのは、`SHA256SUMS` に列挙されたアーカイブ、`SHA256SUMS`、`container-image.txt` だけである
 
 `SHA256SUMS` との照合だけでは、アーカイブと `SHA256SUMS` が一緒に差し替えられた場合を検出できません。
 署名の検証を加えることで、公開するアーカイブが attest の署名したものと同じであることを確かめます。
 
+登録するファイルをディレクトリの中身すべてにしないのは、受け渡す Artifact の対象が将来広がったときに、照合も署名もしていないファイルが黙って公開されるのを防ぐためです。
+
 `--verify-tag` は、タグが存在しないときに `gh` がタグを新しく作ることを防ぎます。
+`--target` は Release のメタデータに記録するコミットを `GITHUB_SHA` にするためのもので、指定しなければ既定ブランチの名前が記録されます。
+タグが存在するときは Release がタグの指すコミットに付くため、`--target` ではタグの付け替えを検出できません。
 同じバージョンの Release がすでにあれば `gh release create` が失敗し、既存の Release は書き換えません。
+
+公開した Release は、バージョンの大小にかかわらず「Latest」になります。
+正式なリリースでは最も大きいバージョンを公開するため、この挙動を変えません。
+動作確認で既存より小さい `v0.0.N` を公開すると、削除するまでの間は確認用の Release が「Latest」になります。
+削除すると、「Latest」は既存の最も新しい Release に戻ります。
+
 Draft を作ってから公開する2段階にはしません。
 Draft と公開の間に挟む確認がないためです。
 
