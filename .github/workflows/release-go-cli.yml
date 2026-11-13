@@ -45,3 +45,78 @@ jobs:
           go mod verify
           go vet ./...
           go test -count=1 ./...
+
+  build:
+    needs: [test]
+    # 「Re-run failed jobs」では成功済みのジョブの if が評価し直されないため、権限を持つジョブを守るよう全ジョブに同じ条件を置く。
+    # build 自体は読み取り専用で、この条件がなくても公開には届かない
+    if: ${{ github.actor_id == github.repository_owner_id && github.triggering_actor == github.repository_owner }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      # GoReleaser がタグからバージョンを決めるため、すべての履歴とタグを取得する
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Set up GoReleaser
+        uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
+        with:
+          distribution: goreleaser
+          version: v2.19.0
+          install-only: true
+
+      # 同じコミットに複数のタグがあると GoReleaser は最も大きいバージョンを選ぶため、起動したタグを明示する
+      - name: Build
+        env:
+          GOTOOLCHAIN: local
+          GORELEASER_CURRENT_TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          goreleaser check
+          goreleaser release --clean --skip=publish,announce
+
+      # アーカイブの過不足、バージョンの食い違い、SHA256SUMS への想定外の記載を検出する
+      - name: Verify archives
+        working-directory: dist
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          expected="$(printf "playground-workflows_${version}_%s\n" \
+            darwin_amd64.tar.gz darwin_arm64.tar.gz \
+            linux_amd64.tar.gz linux_arm64.tar.gz \
+            windows_amd64.zip windows_arm64.zip | sort)"
+          archives="$(find . -maxdepth 1 -type f \( -name '*.tar.gz' -o -name '*.zip' \) -printf '%f\n' | sort)"
+          listed="$(awk '{print $2}' SHA256SUMS | sort)"
+          if [[ "${archives}" != "${expected}" ]]; then
+            echo "::error::Archives in dist/ do not match the expected six archives"
+            diff <(echo "${expected}") <(echo "${archives}") || true
+            exit 1
+          fi
+          if [[ "${listed}" != "${expected}" ]]; then
+            echo "::error::SHA256SUMS does not list exactly the six archives"
+            diff <(echo "${expected}") <(echo "${listed}") || true
+            exit 1
+          fi
+          sha256sum -c SHA256SUMS
+
+      - name: Upload
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-assets
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/SHA256SUMS
+          if-no-files-found: error
+          retention-days: 1
