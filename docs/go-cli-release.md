@@ -27,11 +27,15 @@ deb / rpm / apk の OS パッケージと Homebrew Formula は、現時点では
 |---|---|---|
 | 完全性 | 配布アーカイブの SHA-256 と OCI イメージの digest が期待値に一致する | ハッシュ値だけで期待値の入手元を信頼できること |
 | 来歴 | 成果物の digest と、リポジトリ、タグ、コミット、署名したワークフローの対応が署名で検証できる | 実行された処理やソースコードが安全であること |
-| 機能品質 | テスト、各 OS / CPU での実行、コンテナでの実行が成功する | 全障害・全欠陥の不存在 |
+| 機能品質 | テストが成功する。linux_amd64 の配布アーカイブと、amd64 / arm64 のコンテナで、`--version` の出力がタグと一致する | 全障害・全欠陥の不存在、Linux 以外の OS での実行 |
 | 公開の一貫性 | GitHub Release と GHCR のイメージを `container-image.txt` の digest で結び付け、公開後に照合する | GitHub Releases と GHCR の原子的な同時公開 |
 
 再現可能性（同じ入力から同じバイト列を再生成できること）と既知の脆弱性の検査は、現時点の保証に含めません。
 扱いは [将来の拡張](#将来の拡張) に記載します。
+
+Linux 以外の OS でのバイナリの実行も、リリースの工程では確かめません。
+`CGO_ENABLED=0` でクロスコンパイルするため、OS ごとの挙動の違いはソースコードの性質であり、リリースの工程が持ち込むものではないからです。
+OS ごとの確認はプルリクエストで実行する通常 CI の役割としますが、この CI は現時点ではありません（[将来の拡張](#将来の拡張)）。
 
 SLSA の Build Level を名乗ることは目的にしません。
 
@@ -47,7 +51,7 @@ SLSA の Build Level を名乗ることは目的にしません。
 
 CLI は `--version` で、ビルド時に `-X main.version=<バージョン>` で埋め込んだ値を出力します。
 値は先頭の `v` を除いた形（`1.2.3`）で、配布アーカイブのファイル名に入るバージョンと同じです。
-ワークフローはこの出力を、配布物とイメージが正しいタグからビルドされたことの確認に使います。
+ワークフローはこの出力を、ビルドしたバイナリにタグのバージョンが埋め込まれたことの確認に使います（build で linux_amd64 のアーカイブ、verify-image でイメージ）。
 
 ## ジョブ構成
 
@@ -61,12 +65,12 @@ preflight ── タグが main の履歴にあるか、同じバージョンの
 test ── go mod verify / go vet / go test
     │
     ▼
-build ── GoReleaser で配布アーカイブ 6 件と SHA256SUMS を生成
+build ── GoReleaser で配布アーカイブ 6 件と SHA256SUMS を生成し、中身とバージョンを確認
     │
-    ├──▶ attest ── 配布アーカイブの Artifact Attestation
-    └──▶ smoke ── 6 つの OS / CPU でアーカイブを展開して実行
+    ▼
+attest ── 配布アーカイブの Artifact Attestation
     │
-    ▼（build、attest、smoke がすべて成功）
+    ▼
 container ── アーカイブ内の Linux バイナリを OCI 化して GHCR へ公開、証明
     │
     ▼
@@ -80,7 +84,7 @@ post-verify ── 公開済みの資産と GHCR を取得し直して照合
 ```
 
 取り消しにくい処理ほど後ろに置きます。
-GHCR への公開は、ビルド、来歴証明、全プラットフォームでの実行確認が成功してから行い、GitHub Release の公開は、GHCR に公開したイメージの検証が成功してから行います。
+GHCR への公開は、ビルドと配布アーカイブの確認、来歴証明が成功してから行い、GitHub Release の公開は、GHCR に公開したイメージの検証が成功してから行います。
 
 | ジョブ | `needs` | `GITHUB_TOKEN` の権限 | ソースの Checkout |
 |---|---|---|---|
@@ -88,8 +92,7 @@ GHCR への公開は、ビルド、来歴証明、全プラットフォームで
 | test | preflight | `contents: read` | あり |
 | build | test | `contents: read` | あり（全履歴） |
 | attest | build | `id-token: write`、`attestations: write` | なし |
-| smoke | build | なし | なし |
-| container | build、attest、smoke | `contents: read`、`packages: write`、`id-token: write`、`attestations: write` | あり（Dockerfile だけを使う） |
+| container | build、attest | `contents: read`、`packages: write`、`id-token: write`、`attestations: write` | あり（Dockerfile だけを使う） |
 | verify-image | container | `packages: read`、`attestations: read` | なし |
 | release | attest、container、verify-image | `contents: write`、`attestations: read` | なし |
 | post-verify | container、release | `contents: read`、`packages: read`、`attestations: read` | なし |
@@ -99,7 +102,7 @@ Action はトークンを引数で渡さなくても `github.token` を参照で
 
 権限の割り当ては、次の考え方に従います。
 
-- **コードを実行するジョブ**（test、build、smoke）には、OIDC と公開の権限を与えない
+- **コードを実行するジョブ**（test、build）には、OIDC と公開の権限を与えない
 - **署名するジョブ**（attest）は、Checkout もビルドもせず、受け取ったチェックサムに署名するだけにする
 - **公開するジョブ**（container、release）では、リポジトリのコードを実行しない。container は Dockerfile を読むためだけに Checkout し、release は Checkout せずに受け取ったファイルをデータとして登録する
 
@@ -123,7 +126,8 @@ GHCR については、この誤判定でイメージのタグが上書きされ
 `go mod download`、`go mod verify`、`go vet ./...`、`go test -count=1 ./...` を実行します。
 `GOTOOLCHAIN=local` と `GOFLAGS=-mod=readonly` を指定し、テスト中に Go のツールチェーンや依存の定義が切り替わらないようにします。
 
-プルリクエストで実行する通常 CI はこのリポジトリにないため、このジョブがリリース前の唯一のテストです。
+プルリクエストで `go test` を実行する通常 CI はこのリポジトリにないため、このジョブがリリース前の唯一のテストです。
+プルリクエストで動く `verify-goreleaser.yml` は、GoReleaser の設定を snapshot ビルドで確かめるだけです。
 
 ### build
 
@@ -133,8 +137,18 @@ GoReleaser OSS で配布アーカイブ 6 件と `SHA256SUMS` を生成し、`re
 - GoReleaser がタグからバージョンを決めるため、全履歴（`fetch-depth: 0`）を取得する
 - `goreleaser check` の後、`goreleaser release --clean --skip=publish,announce` を実行する
 - `GORELEASER_CURRENT_TAG` に起動したタグを渡す。同じコミットに複数のタグがあると、GoReleaser は最も大きいバージョンのタグを選ぶためである
-- `dist/` のアーカイブと `SHA256SUMS` に列挙されたファイル名が、どちらもタグのバージョンを含む期待どおりの 6 件と一致することを確かめてから、`sha256sum -c SHA256SUMS` を実行する。アーカイブの欠落、バージョンの食い違い、想定外のファイルの混入を検出する
+- `dist/` のアーカイブと `SHA256SUMS` に列挙されたファイル名が、どちらもタグのバージョンを含む期待どおりの 6 件と一致することを確かめる。アーカイブの欠落、バージョンの食い違い、想定外のファイルの混入を検出する
+- 6 件それぞれの直下が `playground-workflows`（Windows では `playground-workflows.exe`）と `LICENSE` だけであること、tar.gz のバイナリに実行権限があることを確かめる
+- linux_amd64 のアーカイブを `dist/` の外に展開して実行し、`--version` の出力がタグと一致することを確かめる。`-X` の変数名を誤ってもリンカは警告なしに無視するため、埋め込みはバイナリを実行して確かめる
+- 最後に `sha256sum -c SHA256SUMS` を実行する。バイナリの実行より後に置き、照合の後はアップロードだけにする
 - アップロードするのは `dist/*.tar.gz`、`dist/*.zip`、`dist/SHA256SUMS` だけで、`dist/` 内の内部メタデータや単体のバイナリは渡さない
+
+アーカイブの確認を別ジョブにせず build に置くのは、アップロードするファイルそのものを確かめられ、build が OIDC も公開の権限も持たないためです。
+test ジョブでは、GoReleaser が作ったバイナリがまだ存在しないため、`-X` が効いたかを確かめられません。
+
+`--version` を公開前に実行して確かめるのは、linux_amd64 だけです。
+linux_arm64 は verify-image が確かめますが、GHCR への公開後になります。
+darwin と windows は、`ldflags` が全ターゲットで共通であるという設定上の前提に依存しており、`.goreleaser.yaml` の `builds` にターゲット別の上書きを加えると、この前提は崩れます。
 
 ### attest
 
@@ -144,26 +158,6 @@ GoReleaser OSS で配布アーカイブ 6 件と `SHA256SUMS` を生成し、`re
 署名するジョブを build と分けるのは、GoReleaser やビルド中に動くコードに OIDC の権限を渡さないためです。
 ただし、attest が署名するのは同じ実行の build がアップロードした Artifact の中身であり、build の実行環境が侵害されていればその出力にも署名が付きます。
 この限界は、build と attest を1ジョブにまとめた場合と変わりません。
-
-### smoke
-
-配布アーカイブ 6 件のそれぞれを、対応する OS / CPU の runner で展開して実行します。
-
-| OS | CPU | runner ラベル |
-|---|---|---|
-| linux | amd64 | `ubuntu-24.04` |
-| linux | arm64 | `ubuntu-24.04-arm` |
-| darwin | amd64 | `macos-15-intel` |
-| darwin | arm64 | `macos-15` |
-| windows | amd64 | `windows-2025` |
-| windows | arm64 | `windows-11-arm` |
-
-- 展開できること、実行権限があること、`--version` の出力がタグと一致すること、`--help` と引数なしの実行が終了コード 0 で終わることを確かめる
-- ビルドしたプログラムを実行するため、`GITHUB_TOKEN` の権限を与えず、Checkout もしない
-- `fail-fast: false` とし、1つの失敗で他の組み合わせの結果を隠さない
-
-runner ラベルは実装時に GitHub-hosted runners の一覧で確認します。
-使えない組み合わせがある場合は matrix から外し、外した事実をこの文書に記載します。
 
 ### container
 
@@ -336,7 +330,7 @@ Public リポジトリでは BuildKit の Provenance にビルド引数が記録
 
 公開は次の順に進みます。
 
-1. 正規の成果物を生成し、来歴証明と全プラットフォームでの実行確認を成功させる
+1. 正規の成果物を生成して中身とバージョンを確かめ、来歴証明を成功させる
 2. GHCR にイメージを公開し、digest と来歴証明を確定する
 3. GHCR から digest 指定で取得したイメージを検証する
 4. `container-image.txt` を作り、GitHub Release を公開する
@@ -353,7 +347,7 @@ GHCR への公開は、GitHub Release の公開と同義ではありません。
 
 | 失敗した位置 | 対応 |
 |---|---|
-| preflight、test、build、attest、smoke | 何も公開されていない。原因を直し、必要ならタグを削除して新しいコミットにタグを付け直す。ソースが変わらないなら失敗したジョブを再実行してよい |
+| preflight、test、build、attest | 何も公開されていない。原因を直し、必要ならタグを削除して新しいコミットにタグを付け直す。ソースが変わらないなら失敗したジョブを再実行してよい |
 | container 以降 | GHCR にイメージがある。GHCR のバージョンを削除してから再実行するか、全体をやり直す |
 | release 以降 | GitHub Release が公開されている可能性がある。下記の手順で全体をやり直す |
 
@@ -480,6 +474,7 @@ Lambda リリースは直近のタグから次のバージョンを計算する�
 - **実行中のタグの付け替え**：Tag Rulesets でタグを保護していないため、実行中にタグを付け替えられる可能性がある。post-verify がタグの参照先を確認して検出する
 - **存在確認の誤判定**：preflight は認証や通信の障害を「存在しない」と判定する。GHCR のタグが上書きされる可能性が残る
 - **公開物の書き換え**：Immutable Release を採用していないため、公開後の資産とタグは書き換えから保護されていない
+- **Linux 以外の OS での実行**：macOS と Windows のバイナリは、どの工程でも実行していない。通常 CI を用意するまでは、OS 固有の不具合を公開前に検出できない
 - **待機中の実行の取り消し**：`concurrency` の `queue` が `single` のため、リリースの実行中に2つ以上の実行が待機に入ると、先に待機していた実行が取り消される。取り消しは実行の一覧に残るため、気付いた時点で再実行する
 
 ## 将来の拡張
@@ -488,6 +483,7 @@ Lambda リリースは直近のタグから次のバージョンを計算する�
 
 | 拡張 | 着手の条件 | 概要 |
 |---|---|---|
+| OS matrix の通常 CI | OS 固有の処理がコードに入ったとき | プルリクエストで、Linux / macOS / Windows の runner で `go test` を実行する |
 | 配布アーカイブの SBOM | 外部のモジュールへの依存が増えたとき、または提供を求められたとき | GoReleaser の `sboms` で生成し、Syft をバージョン固定でインストールする |
 | `govulncheck` | 外部のモジュールへの依存が増えたとき | test ジョブで実行し、検出があれば止める。通常 CI を先に用意するかもあわせて判断する |
 | 再ビルドによる再現性の確認 | Attestation と実行確認に加えて必要と判断したとき | 別の runner で再ビルドし、正規の `SHA256SUMS` で `sha256sum -c` する。アーカイブ内のファイルの時刻、所有者、権限の固定が必要になる可能性がある |
