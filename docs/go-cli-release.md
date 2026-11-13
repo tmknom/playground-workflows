@@ -531,6 +531,7 @@ Lambda リリースは直近のタグから次のバージョンを計算する�
 | 拡張 | 着手の条件 | 概要 |
 |---|---|---|
 | OS matrix の通常 CI | OS 固有の処理がコードに入ったとき | プルリクエストで、Linux / macOS / Windows の runner で `go test` を実行する |
+| SBOM Attestation | `gh attestation verify` だけで、SBOM がどのアーカイブを記述しているかまで確かめたいとき | `actions/attest` の `sbom-path` で、アーカイブの digest を subject、SBOM を predicate とする Attestation を付ける。1回の呼び出しで渡せる SBOM は1つのため、アーカイブごとに呼び出す。現在は、SBOM 自体の来歴と、SBOM に記録したアーカイブの SHA-256 で対応を確かめる |
 | コンテナイメージの SBOM | 提供を求められたとき | 格納するバイナリは配布アーカイブと同じため、アーカイブの SBOM で代えられないかを先に判断する |
 | `govulncheck` | 外部のモジュールへの依存が増えたとき | test ジョブで実行し、検出があれば止める。通常 CI を先に用意するかもあわせて判断する |
 | 再ビルドによる再現性の確認 | Attestation と実行確認に加えて必要と判断したとき | 別の runner で再ビルドし、正規の `SHA256SUMS` のアーカイブの行で照合する。SBOM は生成のたびに変わるため照合から外す。アーカイブ内のファイルの時刻、所有者、権限の固定が必要になる可能性がある |
