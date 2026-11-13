@@ -416,6 +416,9 @@ gh attestation verify "oci://$(cat container-image.txt)" \
   --deny-self-hosted-runners
 ```
 
+Attestation の subject は Image Index の digest だけです。
+Index に含まれる `linux/amd64` や `linux/arm64` のマニフェストの digest を指定すると、Attestation が見つからず検証に失敗します。
+
 `SHA256SUMS` によるハッシュの照合も使えますが、それだけではアーカイブと `SHA256SUMS` が一緒に差し替えられた場合を検出できません。
 来歴の検証と併用します。
 
