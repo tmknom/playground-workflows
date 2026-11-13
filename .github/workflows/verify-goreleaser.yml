@@ -83,7 +83,8 @@ jobs:
           fi
           sha256sum -c SHA256SUMS
 
-          # 各アーカイブの直下に、バイナリと LICENSE だけがあることを確かめる
+          # 各アーカイブの直下に、バイナリと LICENSE だけがあることと、tar.gz のバイナリに実行権限があることを確かめる。
+          # release-go-cli.yml の build ジョブと同じ確認で、リリース前に PR で誤りを検出する
           for archive in ${expected}; do
             if [[ "${archive}" == *.zip ]]; then
               entries="$(unzip -Z1 "${archive}" | sort)"
@@ -96,6 +97,13 @@ jobs:
               echo "::error::Unexpected entries in ${archive}"
               echo "${entries}"
               exit 1
+            fi
+            if [[ "${archive}" == *.tar.gz ]]; then
+              mode="$(tar -tvzf "${archive}" playground-workflows | awk '{print $1}')"
+              if [[ "${mode}" != -rwx* ]]; then
+                echo "::error::playground-workflows in ${archive} is not executable: ${mode}"
+                exit 1
+              fi
             fi
           done
 
