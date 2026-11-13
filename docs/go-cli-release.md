@@ -74,7 +74,7 @@ attest ── 配布アーカイブの Artifact Attestation
 container ── アーカイブ内の Linux バイナリを OCI 化して GHCR へ公開、証明
     │
     ▼
-verify-image ── GHCR から digest 指定で取得し、実行、バイナリ照合、証明の検証
+verify-image ── GHCR から digest 指定で取得し、証明の検証、バイナリ照合、実行
     │
     ▼
 release ── 来歴を検証し、container-image.txt を作り、GitHub Release を公開
@@ -93,7 +93,7 @@ GHCR への公開は、ビルドと配布アーカイブの確認、来歴証明
 | build | test | `contents: read` | あり（全履歴） |
 | attest | build | `id-token: write`、`attestations: write` | なし |
 | container | build、attest | `contents: read`、`packages: write`、`id-token: write`、`attestations: write` | あり（Dockerfile だけを使う） |
-| verify-image | container | `packages: read`、`attestations: read` | なし |
+| verify-image | container | `attestations: read` | なし |
 | release | attest、container、verify-image | `contents: write`、`attestations: read` | なし |
 | post-verify | container、release | `contents: read`、`packages: read`、`attestations: read` | なし |
 
@@ -174,12 +174,22 @@ darwin と windows は、`ldflags` が全ターゲットで共通であるとい
 ### verify-image
 
 GHCR に公開したイメージを、container の出力した digest で取得して検証します。
-amd64 と arm64 の runner で1回ずつ実行し、Image Index から runner の CPU に合うイメージが選ばれることを利用して両方を確かめます。
+amd64 と arm64 の runner で1回ずつ実行し、それぞれの CPU のイメージを確かめます。
+runner の CPU が matrix の指定と一致することを先に確かめます。
+QEMU が使える runner では、別の CPU のイメージもエミュレーションで実行できてしまうためです。
 
-- `--version` の出力がタグと一致する
-- イメージの実行ユーザーが `nonroot:nonroot` である
-- イメージから取り出したバイナリと、Linux 向けアーカイブから取り出したバイナリが `cmp` で一致する
-- `gh attestation verify oci://...` が、期待するリポジトリ、署名したワークフロー、タグ、コミット SHA で成功する
+1. `sha256sum -c SHA256SUMS` で照合し、digest が `sha256:<64 桁の 16 進数>` の形であることを確かめる
+2. `gh attestation verify oci://...` が、期待するリポジトリ、署名したワークフロー、タグ、コミット SHA で成功する
+3. イメージから取り出したバイナリと、Linux 向けアーカイブから取り出したバイナリが `cmp` で一致する
+4. イメージの実行ユーザーが `nonroot:nonroot` である
+5. `--version` の出力がタグと一致する
+
+来歴とバイナリの一致を確かめてから、イメージを実行します。
+`gh attestation verify` は、`--bundle-from-oci` を付けなければ Attestation を GitHub の Attestation API から取得するため、`attestations: read` が要ります。
+
+GHCR にはログインせず、匿名で取得します。
+パッケージが Public であることが前提で、`packages: read` も与えません。
+パッケージが非公開のままだと取得に失敗し、GitHub Release は公開されません。
 
 ### release
 
