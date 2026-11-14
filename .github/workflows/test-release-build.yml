@@ -1,4 +1,17 @@
-name: Verify GoReleaser
+# Go CLI のリリース用ビルドを、プルリクエストの段階でテストするワークフロー。
+#
+# release-go-cli.yml の build ジョブと同じビルドと確認を、公開せずにスナップショットとして実行する。
+# GoReleaser の設定、GoReleaser と Syft の固定、Go のクロスコンパイル、配布アーカイブと SBOM の中身を、マージ前に確かめる。
+#
+# このワークフローが要るのは、リリース用ビルドを試す場所がほかにないためである。
+#   - release-go-cli.yml は main 上のタグでしか先へ進まないため、プルリクエストのブランチでは試せない
+#   - GoReleaser はローカルにインストールしない方針のため、手元でも試せない
+# これがないと、.goreleaser.yaml などの誤りにはマージ後のリリースで初めて気付き、修正とタグの付け直しが要る。
+#
+# build ジョブの処理を複製しているため、次の値と確認は release-go-cli.yml の build ジョブと同じにし、変えるときは両方を変える。
+#   - GoReleaser と Syft のバージョンとハッシュ
+#   - 配布アーカイブと SBOM の確認（Verify archives）
+name: Test Release Build
 on:
   pull_request:
     paths:
@@ -6,7 +19,7 @@ on:
       - "**.go"
       - go.mod
       - go.sum
-      - .github/workflows/verify-goreleaser.yml
+      - .github/workflows/test-release-build.yml
   workflow_dispatch:
 
 permissions: {}
@@ -19,9 +32,13 @@ defaults:
   run:
     shell: bash
 
-# GoReleaser はローカルにインストールせず、設定の確認はこのワークフローで行う。
-# スナップショットビルドで、配布アーカイブ 6 件、SBOM 6 件、SHA256SUMS が期待どおりに生成されることを確かめる。
-# Syft の版とハッシュ、アーカイブと SBOM の確認は release-go-cli.yml の build ジョブと同じにし、変えるときは両方を変える
+# APP_NAME は、次の箇所と同じ値にする。変えるときは、すべてを同時に変える。
+#   - .github/workflows/release-go-cli.yml の APP_NAME
+#   - .goreleaser.yaml の project_name と builds の binary
+#   - Dockerfile の COPY と ENTRYPOINT のバイナリのパス
+env:
+  APP_NAME: playground-workflows
+
 jobs:
   snapshot:
     runs-on: ubuntu-24.04
@@ -42,14 +59,22 @@ jobs:
           go-version-file: go.mod
           cache: false
 
+      # GoReleaser と Syft は、release-go-cli.yml の build ジョブと同じバージョンとハッシュで固定してインストールする
       - name: Set up GoReleaser
-        uses: goreleaser/goreleaser-action@a4f02ab5355a589de60d917a659ce617ed19b3de # v7.3.0
-        with:
-          distribution: goreleaser
-          version: v2.19.0
-          install-only: true
+        env:
+          GORELEASER_VERSION: 2.19.0
+          GORELEASER_SHA256: ebc3194ad1d1b1787614405285a0039665cd4c5bd3305215a1b201600f90630b
+        run: |
+          set -euo pipefail
+          archive="${RUNNER_TEMP}/goreleaser_${GORELEASER_VERSION}_Linux_x86_64.tar.gz"
+          curl -fsSL --proto '=https' -o "${archive}" \
+            "https://github.com/goreleaser/goreleaser/releases/download/v${GORELEASER_VERSION}/goreleaser_Linux_x86_64.tar.gz"
+          echo "${GORELEASER_SHA256}  ${archive}" | sha256sum -c -
+          mkdir -p "${RUNNER_TEMP}/goreleaser"
+          tar -xzf "${archive}" -C "${RUNNER_TEMP}/goreleaser" goreleaser
+          echo "${RUNNER_TEMP}/goreleaser" >> "${GITHUB_PATH}"
 
-      # GoReleaser が SBOM の生成に呼び出す Syft を入れる。release-go-cli.yml の build ジョブと同じ版とハッシュを使う
+      # GoReleaser が SBOM の生成に呼び出す Syft を入れる
       - name: Set up Syft
         env:
           SYFT_VERSION: 1.55.0
@@ -82,7 +107,7 @@ jobs:
           echo "version: ${version}"
 
           # アーカイブと SBOM の過不足と、SHA256SUMS に想定外のファイルが混ざっていないことを確かめる
-          expected="$(printf "playground-workflows_${version}_%s\n" \
+          expected="$(printf "${APP_NAME}_${version}_%s\n" \
             darwin_amd64.tar.gz darwin_arm64.tar.gz \
             linux_amd64.tar.gz linux_arm64.tar.gz \
             windows_amd64.zip windows_arm64.zip | sort)"
@@ -113,10 +138,10 @@ jobs:
           for archive in ${expected}; do
             if [[ "${archive}" == *.zip ]]; then
               entries="$(unzip -Z1 "${archive}" | sort)"
-              want="$(printf '%s\n' LICENSE playground-workflows.exe)"
+              want="$(printf '%s\n' LICENSE "${APP_NAME}.exe")"
             else
               entries="$(tar -tzf "${archive}" | sort)"
-              want="$(printf '%s\n' LICENSE playground-workflows)"
+              want="$(printf '%s\n' LICENSE "${APP_NAME}")"
             fi
             if [[ "${entries}" != "${want}" ]]; then
               echo "::error::Unexpected entries in ${archive}"
@@ -124,9 +149,9 @@ jobs:
               exit 1
             fi
             if [[ "${archive}" == *.tar.gz ]]; then
-              mode="$(tar -tvzf "${archive}" playground-workflows | awk '{print $1}')"
+              mode="$(tar -tvzf "${archive}" "${APP_NAME}" | awk '{print $1}')"
               if [[ "${mode}" != -rwx* ]]; then
-                echo "::error::playground-workflows in ${archive} is not executable: ${mode}"
+                echo "::error::${APP_NAME} in ${archive} is not executable: ${mode}"
                 exit 1
               fi
             fi
@@ -148,8 +173,8 @@ jobs:
           # runner と同じ OS / CPU のバイナリを実行し、埋め込んだバージョンを確かめる
           extract="${RUNNER_TEMP}/linux_amd64"
           mkdir -p "${extract}"
-          tar -xzf "playground-workflows_${version}_linux_amd64.tar.gz" -C "${extract}"
-          actual="$("${extract}/playground-workflows" --version)"
+          tar -xzf "${APP_NAME}_${version}_linux_amd64.tar.gz" -C "${extract}"
+          actual="$("${extract}/${APP_NAME}" --version)"
           if [[ "${actual}" != "${version}" ]]; then
             echo "::error::--version printed ${actual}, expected ${version}"
             exit 1
