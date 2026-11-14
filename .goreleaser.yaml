@@ -1,10 +1,15 @@
 version: 2
 
+# project_name と builds の binary は、次の箇所と同じ値にする。変えるときは、すべてを同時に変える。
+#   - .github/workflows/release-go-cli.yml の APP_NAME
+#   - .github/workflows/test-release-build.yml の APP_NAME
+#   - Dockerfile の COPY と ENTRYPOINT のバイナリのパス
 project_name: playground-workflows
 
 builds:
   - id: cli
     main: .
+    # project_name と同じ値にする（同期の対象は project_name のコメントを参照）
     binary: playground-workflows
     goos:
       - linux

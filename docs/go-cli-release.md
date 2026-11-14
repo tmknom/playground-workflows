@@ -55,6 +55,14 @@ CLI は `--version` で、ビルド時に `-X main.version=<バージョン>` �
 値は先頭の `v` を除いた形（`1.2.3`）で、配布アーカイブのファイル名に入るバージョンと同じです。
 ワークフローはこの出力を、ビルドしたバイナリにタグのバージョンが埋め込まれたことの確認に使います（build で linux_amd64 のアーカイブ、verify-image でイメージ）。
 
+アプリケーション名とバージョンは、ワークフローの `env` に1回だけ書き、各ジョブはそれを参照します。
+
+- **`APP_NAME`**：`playground-workflows`。`.goreleaser.yaml` の `project_name` と `binary`、`Dockerfile` のバイナリのパスと一致させる。食い違うと build のアーカイブの確認で止まる
+- **`VERSION`**：`github.ref_name`、つまり起動したタグ（`v1.2.3`）である。GitHub Release と GHCR のタグに使い、配布アーカイブの名前と `--version` の照合には、シェルで先頭の `v` を除いた値を使う
+
+preflight の outputs で後続のジョブへ渡す方法は採りません。
+outputs は `needs` に直接書いたジョブからしか参照できないため、全ジョブの `needs` に preflight を加えることになるうえ、`github.ref_name` は実行中に変わらず、preflight を通したことで値の信頼性が増すわけでもないためです。
+
 ## ジョブ構成
 
 ```text
@@ -82,7 +90,7 @@ verify-image ── GHCR から digest 指定で取得し、証明の検証、�
 release ── 来歴を検証し、container-image.txt を作り、GitHub Release を公開
     │
     ▼
-post-verify ── 公開済みの資産と GHCR を取得し直して照合
+post-verify ── 公開済みのアセットと GHCR を取得し直して照合
 ```
 
 取り消しにくい処理ほど後ろに置きます。
@@ -90,7 +98,7 @@ GHCR への公開は、ビルドと配布アーカイブの確認、来歴証明
 
 | ジョブ | `needs` | `GITHUB_TOKEN` の権限 | ソースの Checkout |
 |---|---|---|---|
-| preflight | なし | `contents: read` | あり（全履歴） |
+| preflight | なし | `contents: read`、`packages: read` | あり（全履歴） |
 | test | preflight | `contents: read` | あり |
 | build | test | `contents: read` | あり（全履歴） |
 | attest | build | `id-token: write`、`attestations: write` | なし |
@@ -123,12 +131,12 @@ Action はトークンを引数で渡さなくても `github.token` を参照で
 そのため、エラーメッセージが「存在しない」ことを示す場合（`release not found`、`ERROR: <参照>: not found`）だけを「存在しない」とし、それ以外の失敗では確認できなかったものとして止めます。
 `git merge-base` も同じく、祖先でない場合（終了コード 1）と、`origin/main` がないなどの失敗を分けて報告します。
 
-GHCR は、ログインせず、`packages: read` も与えずに匿名で確認します。
-匿名では、存在しないパッケージも `not found` になるため、パッケージが非公開になっていると既存のタグを検出できない可能性があります。
-パッケージが Public であることは verify-image と post-verify の前提でもあります。
+GHCR は、`packages: read` を与えて `GITHUB_TOKEN` でログインしてから確認します。
+匿名では、存在しないパッケージも `not found` になるため、パッケージが非公開になっていると既存のタグを検出できないからです。
+preflight はリポジトリのコードを実行せず、読み取りの権限を足すだけのため、ログインを加えても公開の権限には届きません。
 
 preflight は「Re-run all jobs」では実行し直されますが、「Re-run failed jobs」では成功済みのため実行されません。
-GHCR のタグの存在は、container も公開の直前にログインした状態で確かめます（[container](#container)）。
+そのため、container も公開の直前に同じ判定で GHCR のタグの存在を確かめます（[container](#container)）。
 
 ### test
 
@@ -146,7 +154,7 @@ GoReleaser OSS で配布アーカイブ 6 件、SBOM 6 件、`SHA256SUMS` を生
 このジョブの出力が、以降のすべてのジョブが扱う正規の成果物です。
 
 - GoReleaser がタグからバージョンを決めるため、全履歴（`fetch-depth: 0`）を取得する
-- GoReleaser が SBOM の生成に呼び出す Syft を、GitHub Releases から取得し、ワークフローに書いた SHA-256 と照合してからインストールする（[外部 Action とツールの固定](#外部-action-とツールの固定)）
+- GoReleaser と、GoReleaser が SBOM の生成に呼び出す Syft を、GitHub Releases から取得し、ワークフローに書いた SHA-256 と照合してからインストールする（[外部 Action とツールの固定](#外部-action-とツールの固定)）
 - `goreleaser check` の後、`goreleaser release --clean --skip=publish,announce` を実行する
 - `GORELEASER_CURRENT_TAG` に起動したタグを渡す。同じコミットに複数のタグがあると、GoReleaser は最も大きいバージョンのタグを選ぶためである
 - `dist/` のアーカイブが、タグのバージョンを含む期待どおりの 6 件と一致し、`dist/` の SBOM がその 6 件に `.sbom.json` を付けた名前と一致し、`SHA256SUMS` の列挙がその 12 件と一致することを確かめる。アーカイブや SBOM の欠落、バージョンの食い違い、想定外のファイルの混入を検出する
@@ -168,6 +176,10 @@ darwin と windows は、`ldflags` が全ターゲットで共通であるとい
 `actions/attest` に `subject-checksums` として `SHA256SUMS` を渡し、`SHA256SUMS` に列挙された配布アーカイブ 6 件と SBOM 6 件に SLSA Build Provenance の Artifact Attestation を付けます。
 `SHA256SUMS` 自体は subject に含まれません。
 
+`actions/attest` には、Build Provenance を作るよう指定する入力がありません。
+predicate の入力（`predicate-type`、`predicate`、`predicate-path`）を省いたときに Build Provenance を作り、`predicate-type` を渡すと独自の predicate として扱われ、predicate の本体も自分で書く必要があります。
+そのため入力は省き、既定の挙動が将来変わっても公開しないよう、検証する側（container、verify-image、release）の `gh attestation verify` に `--predicate-type https://slsa.dev/provenance/v1` を明示します。
+
 署名するジョブを build と分けるのは、GoReleaser やビルド中に動くコードに OIDC の権限を渡さないためです。
 ただし、attest が署名するのは同じ実行の build がアップロードした Artifact の中身であり、build の実行環境が侵害されていればその出力にも署名が付きます。
 この限界は、build と attest を1ジョブにまとめた場合と変わりません。
@@ -177,16 +189,25 @@ darwin と windows は、`ldflags` が全ターゲットで共通であるとい
 配布アーカイブに入っている Linux バイナリを格納したイメージを、GHCR に公開して証明します。
 
 1. `release-assets` をダウンロードし、`sha256sum -c SHA256SUMS` で照合する
-2. Linux 向けアーカイブ 2 件から `playground-workflows` を取り出し、`<arch>/playground-workflows` の形で専用のビルドコンテキストに置く
-3. GHCR にログインし、同じバージョンのタグがないことを preflight と同じ判定で確かめる
-4. Docker Buildx で `linux/amd64,linux/arm64` のイメージをビルドし、`ghcr.io/tmknom/playground-workflows:vX.Y.Z` として公開する
-5. `docker/build-push-action` が出力した Image Index の digest に Artifact Attestation を付け、GHCR にも保存する
-6. digest をジョブの出力として後続ジョブへ渡す
+2. Linux 向けアーカイブ 2 件で、release と同じ期待値の `gh attestation verify` を実行し、署名された subject の名前も確かめる
+3. Linux 向けアーカイブ 2 件から `playground-workflows` を取り出し、`<arch>/playground-workflows` の形で専用のビルドコンテキストに置く
+4. GHCR にログインし、同じバージョンのタグがないことを preflight と同じ判定で確かめる
+5. Docker Buildx で `linux/amd64,linux/arm64` のイメージをビルドし、`ghcr.io/tmknom/playground-workflows:vX.Y.Z` として公開する
+6. `docker/build-push-action` が出力した Image Index の digest に Artifact Attestation を付け、GHCR にも保存する
+7. digest をジョブの出力として後続ジョブへ渡す
+
+GHCR への公開も取り消しにくいため、release と同じく、来歴の検証を公開の条件にします。
+`SHA256SUMS` との照合だけでは、アーカイブと `SHA256SUMS` が一緒に差し替えられた場合を検出できないためです。
+検証するのは、イメージに格納するバイナリを取り出す Linux 向けアーカイブ 2 件だけです。
+`attestations: write` は読み取りも含むため、権限は増えません。
 
 公開の直前にもタグの存在を確かめるのは、公開後の Attestation の生成などでこのジョブが失敗したとき、「Re-run failed jobs」で同じタグへ再び公開するのを防ぐためです。
 「Re-run failed jobs」では成功済みの preflight が実行されないため、preflight の確認だけでは防げません。
 BuildKit が既定で付ける Provenance にはビルドの時刻などが記録されるため、再び公開すると Image Index の digest が変わり、タグが別のイメージを指す可能性があります。
-preflight と違ってログインした後に確かめるため、パッケージが非公開になっていても既存のタグを検出できます。
+
+`docker/build-push-action` は既定で、ビルドの記録（ビルドのログや設定、BuildKit の Provenance をまとめた `.dockerbuild` ファイル）を Actions Artifact としてアップロードします。
+ビルドの失敗を Docker Desktop などで調べるための記録で、公開物にも検証にも使いません。
+ジョブ間で受け渡す Actions Artifact を `release-assets` だけにするため、`DOCKER_BUILD_RECORD_UPLOAD=false` で止めます。
 
 公開した後に Attestation の生成で失敗すると、Attestation のないイメージがタグ付きで GHCR に残ります。
 再実行はこの確認で止まるため、そのイメージを再利用して証明を付け直すことはしません。
@@ -202,7 +223,7 @@ runner の CPU が matrix の指定と一致することを先に確かめます
 QEMU が使える runner では、別の CPU のイメージもエミュレーションで実行できてしまうためです。
 
 1. `sha256sum -c SHA256SUMS` で照合し、digest が `sha256:<64 桁の 16 進数>` の形であることを確かめる
-2. `gh attestation verify oci://...` が、期待するリポジトリ、署名したワークフロー、タグ、コミット SHA で成功する
+2. `gh attestation verify oci://...` が、期待する predicate type、リポジトリ、署名したワークフロー、タグ、コミット SHA で成功する
 3. イメージから取り出したバイナリと、Linux 向けアーカイブから取り出したバイナリが `cmp` で一致する
 4. イメージの実行ユーザーが `nonroot:nonroot` である
 5. `--version` の出力がタグと一致する
@@ -216,16 +237,25 @@ GHCR にはログインせず、匿名で取得します。
 
 ### release
 
-受け取った成果物を検証してから、GitHub Release を公開します。
+受け取った成果物と公開先の状態を検証してから、GitHub Release を公開します。
+検証は、公開するファイル（Verify assets）と公開の前提（Verify release target）の2つのステップに分け、公開のステップ（Publish release）は公開だけを行います。
+
+Verify assets は、公開するファイルを確かめます。
 
 1. `SHA256SUMS` に列挙されたファイル名が、タグのバージョンを含む期待どおりの 12 件（アーカイブ 6 件と SBOM 6 件）と一致することを確かめ、`sha256sum -c SHA256SUMS` で照合する
-2. 12 件のそれぞれで `gh attestation verify` を実行する。期待値は、リポジトリ、署名したワークフロー（`release-go-cli.yml`）、`--signer-digest` と `--source-digest` に `GITHUB_SHA`、`--source-ref` に `GITHUB_REF` である。`gh attestation verify` はファイルの digest だけで Attestation を探すため、`--format json` の出力から、ファイル名と digest の組が署名された subject に含まれることも確かめる
-3. container の出力した digest が `sha256:<64 桁の 16 進数>` の形であることを確かめる
-4. `ghcr.io/tmknom/playground-workflows@sha256:<digest>` を1行で書いた `container-image.txt` を作る
-5. コミットの API に `refs/tags/vX.Y.Z` を渡して得た SHA が `GITHUB_SHA` と一致することを確かめる
-6. Draft を含めて、同じタグの Release がないことを確かめる
-7. 公開するバージョンが現在の「Latest」より小さければ、警告を出す
-8. `gh release create <タグ> --verify-tag --target <GITHUB_SHA> --title <タグ> --generate-notes` で公開する。資産として登録するのは、`SHA256SUMS` に列挙されたアーカイブと SBOM、`SHA256SUMS`、`container-image.txt` だけである。列挙が 12 件でなければ公開しない
+2. 12 件のそれぞれで `gh attestation verify` を実行する。期待値は、predicate type（`https://slsa.dev/provenance/v1`）、リポジトリ、署名したワークフロー（`release-go-cli.yml`）、`--signer-digest` と `--source-digest` に `GITHUB_SHA`、`--source-ref` に `GITHUB_REF` である。`gh attestation verify` はファイルの digest だけで Attestation を探すため、`--format json` の出力から、ファイル名と digest の組が署名された subject に含まれることも確かめる
+
+Verify release target は、公開の前提を確かめます。
+
+1. container の出力した digest が `sha256:<64 桁の 16 進数>` の形であることを確かめる
+2. コミットの API に `refs/tags/vX.Y.Z` を渡して得た SHA が `GITHUB_SHA` と一致することを確かめる
+3. Draft を含めて、同じタグの Release がないことを確かめる
+4. 公開するバージョンが現在の「Latest」より小さければ、警告を出す
+
+Publish release は、公開します。
+
+1. `ghcr.io/tmknom/playground-workflows@sha256:<digest>` を1行で書いた `container-image.txt` を作る
+2. `gh release create <タグ> --verify-tag --target <GITHUB_SHA> --title <タグ> --generate-notes` で公開する。アセットとして登録するのは、`SHA256SUMS` に列挙されたアーカイブと SBOM、`SHA256SUMS`、`container-image.txt` だけである。列挙を配列に読み込んだ結果が 12 件でなければ公開しない
 
 `SHA256SUMS` との照合だけでは、アーカイブと `SHA256SUMS` が一緒に差し替えられた場合を検出できません。
 署名の検証を加えることで、公開するアーカイブが、このワークフローによって同じコミットとタグで署名されたものであることを確かめます。
@@ -257,8 +287,8 @@ Release はタグの指すコミットに付くため、`--target` ではタグ�
 
 Draft を確認してから公開する独立した工程は設けません。
 Draft と公開の間に挟む確認がないためです。
-ただし、資産を指定した `gh release create` は、内部で Draft を作り、資産をアップロードしてから公開します。
-途中で失敗すると、資産の一部だけを持つ Draft が残る可能性があります。
+ただし、アセットを指定した `gh release create` は、内部で Draft を作り、アセットをアップロードしてから公開します。
+途中で失敗すると、アセットの一部だけを持つ Draft が残る可能性があります。
 Draft があっても `gh release create` が失敗するとは限らないため、公開の前に Draft を含めて同じタグの Release がないことを確かめます。
 同じタグの Release は公開済みのものも含めてこの確認で止まるため、既存の Release を書き換えません。
 post-verify も、Release が Draft でないことを確かめます。
@@ -270,13 +300,13 @@ post-verify も、Release が Draft でないことを確かめます。
 
 - Release が Draft ではない
 - コミットの API に `refs/tags/vX.Y.Z` を渡して得た SHA が `GITHUB_SHA` と一致する（軽量タグと注釈付きタグのどちらでも、指しているコミットの SHA が得られる。タグ名だけを渡すと、同じ名前のブランチがあるときに参照先が曖昧になる）
-- `gh release download` で取得した資産と、正規の成果物に `container-image.txt` を加えたものが `diff -r` で一致する。資産の過不足と内容の違いを同時に検出する
+- `gh release download` で取得したアセットと、正規の成果物に `container-image.txt` を加えたものが `diff -r` で一致する。アセットの過不足と内容の違いを同時に検出する
 - GHCR の `vX.Y.Z` タグが、`container-image.txt` に記録した digest を指している
-- 取得した資産と `container-image.txt` の参照を使い、[利用者による検証](#利用者による検証) と同じコマンドで来歴を検証できる
+- 取得したアセットと `container-image.txt` の参照を使い、[利用者による検証](#利用者による検証) と同じコマンドで来歴を検証できる
 
 来歴の検証には、release と verify-image が付けている `--signer-digest` と `--source-digest` を付けません。
-目的は、利用者向けの手順が公開済みの資産で通ることを確かめることにあるためです。
-コミットとの対応は、`diff -r` で資産が release の検証したファイルと一致し、タグが `GITHUB_SHA` を指すことで確かめています。
+目的は、利用者向けの手順が公開済みのアセットで通ることを確かめることにあるためです。
+コミットとの対応は、`diff -r` でアセットが release の検証したファイルと一致し、タグが `GITHUB_SHA` を指すことで確かめています。
 
 verify-image と同じく、GHCR にはログインせず、`packages: read` も与えません。
 
@@ -287,9 +317,9 @@ verify-image と同じく、GHCR にはログインせず、`packages: read` も
 
 ## 成果物とジョブ間の受け渡し
 
-GitHub Release の資産は、次の 14 件です。
+GitHub Release のアセットは、次の 14 件です。
 
-| 資産 | 内容 | 生成するジョブ |
+| アセット | 内容 | 生成するジョブ |
 |---|---|---|
 | `playground-workflows_<バージョン>_<os>_<arch>.tar.gz` | Linux、macOS 向けの配布アーカイブ。4 件 | build |
 | `playground-workflows_<バージョン>_windows_<arch>.zip` | Windows 向けの配布アーカイブ。2 件 | build |
@@ -388,7 +418,9 @@ subject はタグではなく digest にします。
 タグは付け替えられるためです。
 
 `create-storage-record` は `false` にします。
-storage record は組織が所有するリポジトリ向けの機能で、`artifact-metadata: write` を必要とするためです。
+storage record は、組織の linked artifacts ページに成果物の保存先を記録する、組織が所有するリポジトリ向けの機能で、`artifact-metadata: write` を必要とするためです。
+Attestation の生成と検証には使われず、作らなくても来歴の検証は変わりません。
+container の `DOCKER_BUILD_RECORD_UPLOAD` が止めるビルドの記録とは別のものです（[container](#container)）。
 
 Docker BuildKit が既定で付ける Provenance はそのまま残しますが、GitHub の署名が付いた来歴としては扱いません。
 Public リポジトリでは BuildKit の Provenance にビルド引数が記録され得るため、ビルド引数に秘密情報を渡しません。
@@ -404,7 +436,7 @@ Public リポジトリでは BuildKit の Provenance にビルド引数が記録
 2. GHCR にイメージを公開し、digest と来歴証明を確定する
 3. GHCR から digest 指定で取得したイメージを検証する
 4. `container-image.txt` を作り、GitHub Release を公開する
-5. 公開済みの資産と GHCR を取得し直して照合する
+5. 公開済みのアセットと GHCR を取得し直して照合する
 
 GitHub Releases と GHCR は原子的に公開できないため、手順 2 から 4 の間は GHCR にだけイメージがある状態になります。
 この間に失敗した場合の部分成功は、避けられない状態として受け入れます。
@@ -443,18 +475,18 @@ preflight は同じバージョンの Release と GHCR のタグがあると止�
 ## Immutable Release を採用しない運用
 
 GitHub の Immutable Releases は、現時点では有効にしません。
-有効にすると、公開済みの Release の資産と関連する Git タグを変更、削除できなくなり、同じバージョンでリリース工程を繰り返し試すことができなくなるためです。
+有効にすると、公開済みの Release のアセットと関連する Git タグを変更、削除できなくなり、同じバージョンでリリース工程を繰り返し試すことができなくなるためです。
 
 この運用は、次の前提に立ちます。
 
 - Git タグ、GitHub Release、GHCR のパッケージバージョンは、検証のために削除してよい
 - 不整合な状態になった場合は、すべて削除して初めからやり直してよい
 - Tag Rulesets によるタグの更新、削除の制限も導入しない
-- Release Attestation が生成されないため、`gh release verify` と `gh release verify-asset` は使わない。公開後の資産は post-verify が取得し直して照合する
+- Release Attestation が生成されないため、`gh release verify` と `gh release verify-asset` は使わない。公開後のアセットは post-verify が取得し直して照合する
 
 この運用で失う保証は2つです。
 
-- 公開後の Release の資産と Git タグを、書き換えから保護すること
+- 公開後の Release のアセットと Git タグを、書き換えから保護すること
 - `SHA256SUMS` と `container-image.txt` の内容を、署名で検証できるようにすること
 
 配布アーカイブとイメージには Artifact Attestation が付くため、それらの来歴の検証は Immutable Release がなくても成り立ちます。
@@ -506,7 +538,7 @@ Index に含まれる `linux/amd64` や `linux/arm64` のマニフェストの d
 `SHA256SUMS` によるハッシュの照合も使えますが、それだけではアーカイブと `SHA256SUMS` が一緒に差し替えられた場合を検出できません。
 来歴の検証と併用します。
 
-post-verify は、公開済みの資産に対してこれと同じ引数で検証を実行します。
+post-verify は、公開済みのアセットに対してこれと同じ引数で検証を実行します。
 そのため、利用者向けの手順が実際に通ることを、リリースのたびに確かめられます。
 
 ## Lambda リリースとの共存
@@ -525,12 +557,31 @@ Lambda リリースは直近のタグから次のバージョンを計算する�
 ## 外部 Action とツールの固定
 
 - **Action**：`uses` はすべて完全なコミット SHA で固定し、行末のコメントにバージョンを書く。更新は Dependabot（`github-actions`）に任せる
-- **GoReleaser**：`goreleaser/goreleaser-action` の `version` に、GoReleaser OSS の正確なバージョンを指定する。`install-only: true` でインストールだけを行い、実行はシェルから明示的に行う
-- **Syft**：GitHub Releases から linux_amd64 のアーカイブを取得し、ワークフローに書いた SHA-256 と照合してから使う。インストール用の Action（`anchore/sbom-action/download-syft`）は使わない。Action の SHA で固定できるのは Action のコードだけで、Action が実行時に取得する Syft のバイト列は固定できないためである。Dependabot では更新できないため、版とハッシュは手動で更新し、release-go-cli.yml と verify-goreleaser.yml を同時に変える
+- **GoReleaser と Syft**：GitHub Releases から Linux amd64 のアーカイブを取得し、ワークフローに書いた SHA-256 と照合してから使う。インストール用の Action（`goreleaser/goreleaser-action`、`anchore/sbom-action/download-syft`）は使わない。Action の SHA で固定できるのは Action のコードだけで、Action が実行時に取得するバイト列は固定できないためである。たとえば `goreleaser/goreleaser-action` v7.3.0 は、アーカイブを同じ Release の `checksums.txt` と照合するだけで、`checksums.txt` を取得できなければ警告を出して照合を飛ばし、cosign による署名の検証は runner に cosign があるときしか行わない。Dependabot では更新できないため、バージョンとハッシュは手動で更新し、release-go-cli.yml と test-release-build.yml を同時に変える
 - **Go**：`go.mod` の `go` 行にパッチバージョンまで書いて固定する（[ビルドの設定](#ビルドの設定)）
 - **ベースイメージ**：Dockerfile の `FROM` に digest で固定する
 
 固定する値は、追加や更新のたびに公式のリリース情報で確認します。
+
+GoReleaser と Syft は、どちらも Release の `checksums.txt` に cosign の署名（Sigstore バンドル `checksums.txt.sigstore.json`）を付けています。
+ワークフローの実行時には、この署名を検証しません。
+ハッシュを固定していれば取得したバイト列は一意に決まり、実行時の署名検証は完全性に何も加えないうえ、cosign 自体を固定してインストールする手間が増えるためです。
+署名が役立つのは、固定するハッシュが正規の発行元のものかを確かめる場面のため、バージョンとハッシュを更新するときに、次のように手元で検証してから `checksums.txt` の値を書き写します。
+
+```bash
+cosign verify-blob checksums.txt \
+  --bundle checksums.txt.sigstore.json \
+  --certificate-identity https://github.com/goreleaser/goreleaser/.github/workflows/release.yml@refs/tags/vX.Y.Z \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+
+cosign verify-blob syft_X.Y.Z_checksums.txt \
+  --bundle syft_X.Y.Z_checksums.txt.sigstore.json \
+  --certificate-identity https://github.com/anchore/syft/.github/workflows/release.yaml@refs/heads/main \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
+署名者の identity は、GoReleaser v2.19.0 と Syft v1.55.0 の署名証明書に記録された値です。
+Syft はタグではなく `main` ブランチのワークフローで署名しているため、identity からはバージョンを確かめられません。
 
 ## 設計上の不変条件
 
@@ -544,7 +595,7 @@ Lambda リリースは直近のタグから次のバージョンを計算する�
 8. OIDC の権限は attest と container だけに、公開の権限は container と release だけに与える。
 9. 必須の検証に失敗した場合は、GitHub Release を公開しない。
 10. 既存の GitHub Release と GHCR のバージョンタグを、自動で上書きしない。
-11. 公開済みの Release の資産を自動で変更しない。作り直す場合は Release ごと削除する。
+11. 公開済みの Release のアセットを自動で変更しない。作り直す場合は Release ごと削除する。
 12. 公開後に、GitHub Release と GHCR の成果物を正規の成果物と照合する。
 
 ## 残るリスク
@@ -553,8 +604,8 @@ Lambda リリースは直近のタグから次のバージョンを計算する�
 - **GitHub 基盤への依存**：署名、実行、公開のすべてが GitHub の基盤に依存しており、基盤全体の侵害には対抗できない
 - **タグ起点のワークフロー定義**：タグの指すコミットにあるワークフロー定義そのものが実行される。悪意のある定義が実行された後では、preflight は防御にならない。`main` の変更のレビューと、タグを作成できる者の限定に依存する
 - **実行中のタグの付け替え**：Tag Rulesets でタグを保護していないため、実行中にタグを付け替えられる可能性がある。release が公開の直前に、post-verify が公開後にタグの参照先を確認するが、確認の直後の付け替えは防げない
-- **存在確認の誤判定**：preflight は GHCR を匿名で確認するため、パッケージが非公開になっていると既存のタグを「存在しない」と判定する可能性がある。container はログインした後にもう一度確かめるため、この場合も上書きの前に止まる。エラーメッセージの文言で判定するため、`gh` や Docker Buildx の文言が変わると、存在しないバージョンでも preflight や container が止まる
-- **公開物の書き換え**：Immutable Release を採用していないため、公開後の資産とタグは書き換えから保護されていない
+- **存在確認の誤判定**：エラーメッセージの文言で判定するため、`gh` や Docker Buildx の文言が変わると、存在しないバージョンでも preflight や container が止まる
+- **公開物の書き換え**：Immutable Release を採用していないため、公開後のアセットとタグは書き換えから保護されていない
 - **作り直す前のビルドの Attestation**：利用者による検証はタグの名前を固定し、コミットを固定しない。[失敗時のやり直し](#失敗時のやり直し) で同じバージョンを作り直しても、前の実行が付けた Attestation は残るため、前のビルドのアーカイブやイメージも利用者の検証を通る。README の「保証しない内容」に書いている
 - **Linux 以外の OS での実行**：macOS と Windows のバイナリは、どの工程でも実行していない。通常 CI を用意するまでは、OS 固有の不具合を公開前に検出できない
 - **待機中の実行の取り消し**：`concurrency` の `queue` が `single` のため、リリースの実行中に2つ以上の実行が待機に入ると、先に待機していた実行が取り消される。取り消しは実行の一覧に残るため、気付いた時点で再実行する
