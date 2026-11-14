@@ -57,7 +57,7 @@ CLI は `--version` で、ビルド時に `-X main.version=<バージョン>` �
 
 アプリケーション名とバージョンは、ワークフローの `env` に1回だけ書き、各ジョブはそれを参照します。
 
-- **`APP_NAME`**：`playground-workflows`。`.goreleaser.yaml` の `project_name` と `binary`、`Dockerfile` のバイナリのパスと一致させる。食い違うと build のアーカイブの確認で止まる
+- **`APP_NAME`**：`playground-workflows`。`.goreleaser.yaml` の `project_name`（`binary` は `{{ .ProjectName }}` で参照する）、`Dockerfile` のバイナリのパスと一致させる。食い違うと build のアーカイブの確認で止まる
 - **`VERSION`**：`github.ref_name`、つまり起動したタグ（`v1.2.3`）である。GitHub Release と GHCR のタグに使い、配布アーカイブの名前と `--version` の照合には、シェルで先頭の `v` を除いた値を使う
 
 preflight の outputs で後続のジョブへ渡す方法は採りません。
@@ -142,6 +142,7 @@ preflight は「Re-run all jobs」では実行し直されますが、「Re-run 
 
 `go mod download`、`go mod verify`、`go vet ./...`、`go test -count=1 ./...` を実行します。
 `GOTOOLCHAIN=local` と `GOFLAGS=-mod=readonly` を指定し、テスト中に Go のツールチェーンや依存の定義が切り替わらないようにします。
+ほかの環境変数は `.goreleaser.yaml` の `builds` の `env` と同じ値にし、配布するバイナリと同じ条件でテストし、依存モジュールも同じ取得元から取得します。
 
 コード変更に対する包括的な品質の検証は、プルリクエストで動く通常 CI の役割です。
 このジョブは、リリースするコミットそのものについて、重要な品質条件を通常 CI とは独立に確かめ直します。
@@ -193,8 +194,9 @@ predicate の入力（`predicate-type`、`predicate`、`predicate-path`）を省
 3. Linux 向けアーカイブ 2 件から `playground-workflows` を取り出し、`<arch>/playground-workflows` の形で専用のビルドコンテキストに置く
 4. GHCR にログインし、同じバージョンのタグがないことを preflight と同じ判定で確かめる
 5. Docker Buildx で `linux/amd64,linux/arm64` のイメージをビルドし、`ghcr.io/tmknom/playground-workflows:vX.Y.Z` として公開する
-6. `docker/build-push-action` が出力した Image Index の digest に Artifact Attestation を付け、GHCR にも保存する
-7. digest をジョブの出力として後続ジョブへ渡す
+6. `docker/build-push-action` が出力した Image Index の digest が `sha256:<64 桁の 16 進数>` の形であることを確かめ、`ghcr.io/tmknom/playground-workflows@sha256:<digest>` の形の参照を作る
+7. Image Index の digest に Artifact Attestation を付け、GHCR にも保存する
+8. digest 付きの参照をジョブの出力として後続ジョブへ渡す
 
 GHCR への公開も取り消しにくいため、release と同じく、来歴の検証を公開の条件にします。
 `SHA256SUMS` との照合だけでは、アーカイブと `SHA256SUMS` が一緒に差し替えられた場合を検出できないためです。
@@ -217,12 +219,12 @@ GitHub Release は公開されておらず、このイメージを参照する `
 
 ### verify-image
 
-GHCR に公開したイメージを、container の出力した digest で取得して検証します。
+GHCR に公開したイメージを、container の出力した digest 付きの参照で取得して検証します。
 amd64 と arm64 の runner で1回ずつ実行し、それぞれの CPU のイメージを確かめます。
 runner の CPU が matrix の指定と一致することを先に確かめます。
 QEMU が使える runner では、別の CPU のイメージもエミュレーションで実行できてしまうためです。
 
-1. `sha256sum -c SHA256SUMS` で照合し、digest が `sha256:<64 桁の 16 進数>` の形であることを確かめる
+1. `sha256sum -c SHA256SUMS` で照合し、受け取った参照が `ghcr.io/tmknom/playground-workflows@sha256:<64 桁の 16 進数>` の形であることを確かめる
 2. `gh attestation verify oci://...` が、期待する predicate type、リポジトリ、署名したワークフロー、タグ、コミット SHA で成功する
 3. イメージから取り出したバイナリと、Linux 向けアーカイブから取り出したバイナリが `cmp` で一致する
 4. イメージの実行ユーザーが `nonroot:nonroot` である
@@ -247,14 +249,14 @@ Verify assets は、公開するファイルを確かめます。
 
 Verify release target は、公開の前提を確かめます。
 
-1. container の出力した digest が `sha256:<64 桁の 16 進数>` の形であることを確かめる
+1. container の出力した参照が `ghcr.io/tmknom/playground-workflows@sha256:<64 桁の 16 進数>` の形であることを確かめる
 2. コミットの API に `refs/tags/vX.Y.Z` を渡して得た SHA が `GITHUB_SHA` と一致することを確かめる
 3. Draft を含めて、同じタグの Release がないことを確かめる
 4. 公開するバージョンが現在の「Latest」より小さければ、警告を出す
 
 Publish release は、公開します。
 
-1. `ghcr.io/tmknom/playground-workflows@sha256:<digest>` を1行で書いた `container-image.txt` を作る
+1. container の出力した参照を1行で書いた `container-image.txt` を作る
 2. `gh release create <タグ> --verify-tag --target <GITHUB_SHA> --title <タグ> --generate-notes` で公開する。アセットとして登録するのは、`SHA256SUMS` に列挙されたアーカイブと SBOM、`SHA256SUMS`、`container-image.txt` だけである。列挙を配列に読み込んだ結果が 12 件でなければ公開しない
 
 `SHA256SUMS` との照合だけでは、アーカイブと `SHA256SUMS` が一緒に差し替えられた場合を検出できません。
@@ -335,8 +337,16 @@ GitHub Release のアセットは、次の 14 件です。
 アーカイブは `SHA256SUMS` と Artifact Attestation で検証できるため、取り出したバイナリは配布物と同じバイト列になり、バイナリ単体のハッシュ一覧を別に持つ必要がありません。
 実行権限もアーカイブの中で保持されます。
 
-GHCR の Image Index digest は、container ジョブの出力 `digest` として後続ジョブへ渡します。
-イメージ名は `ghcr.io/${{ github.repository }}` で各ジョブが組み立てます。
+イメージの参照は、それぞれ1か所で定め、各ジョブでは組み立てずに受け取ります。
+
+- **イメージ名**：ワークフローの `env` の `IMAGE_NAME`（`ghcr.io/${{ github.repository }}`）
+- **公開するタグ付きの参照**：ワークフローの `env` の `IMAGE_TAG`（`<イメージ名>:vX.Y.Z`）
+- **digest 付きの参照**：container ジョブの出力 `image`（`<イメージ名>@sha256:<digest>`）
+
+digest だけを渡して各ジョブがイメージ名と連結すると、連結の誤りで `container-image.txt` が別のイメージを指しても、公開するまで検出できません。
+container が `docker/build-push-action` の出力から参照を一度だけ作り、verify-image、release、post-verify は同じ値を使います。
+受け取る側は、出力の参照名の誤りで値が空になる場合に備え、参照の形だけを確かめます。
+`gh attestation verify` に渡す署名したワークフローも、`env` の `SIGNER_WORKFLOW` の1か所で定めます。
 
 `actions/download-artifact` の転送単位の digest 検査とは別に、各ジョブで `sha256sum -c SHA256SUMS` を実行します。
 転送の検査は Artifact の破損を検出するものであり、公開の停止条件はファイル単位の照合と署名の検証に置くためです。
@@ -357,8 +367,10 @@ Go のビルドとパッケージングは GoReleaser OSS に任せ、担当範�
 
 `.goreleaser.yaml` の要点は次のとおりです。
 
-- **`builds`**：`main: .`、`binary: playground-workflows`、`goos` は linux / darwin / windows、`goarch` は amd64 / arm64
-- **環境変数**：`CGO_ENABLED=0`、`GOTOOLCHAIN=local`
+- **`builds`**：`main: .`、`binary: "{{ .ProjectName }}"`、`goos` は linux / darwin / windows、`goarch` は amd64 / arm64。`goamd64` は `v1`、`goarm64` は `v8.0` で、動作する CPU の下限を既定値と同じ値で明示する
+- **環境変数**：GoReleaser は runner の環境変数（`go env -w` の設定ファイルも含む）を引き継ぐため、ビルドに関わる変数を既定値でも明示する
+    - バイナリを変える変数：`CGO_ENABLED=0`、`GOTOOLCHAIN=local`、`GOFLAGS=`（ビルドのフラグは `flags` だけで決める）、`GOEXPERIMENT=`、`GOFIPS140=off`
+    - 依存モジュールの取得元：`GOPROXY=https://proxy.golang.org`、`GOSUMDB=sum.golang.org`、`GOPRIVATE`、`GONOPROXY`、`GONOSUMDB`、`GOINSECURE` は空。取得元を公開のプロキシとチェックサム DB に揃え、プロキシにないモジュールを VCS から直接取得しない。完全性は `go.sum` との照合が保証し、`-mod=readonly` により `go.sum` にないモジュールはビルドを止める。値は Lambda のビルド（`reusable-build-lambda.yml`）と同じにする
 - **フラグ**：`-trimpath`、`-mod=readonly`
 - **`ldflags`**：`-s -w -X main.version={{ .Version }}`
 - **`mod_timestamp`**：`{{ .CommitTimestamp }}`。バイナリの更新時刻をビルド時刻ではなくコミット時刻にする
@@ -397,7 +409,15 @@ ENTRYPOINT ["/usr/local/bin/playground-workflows"]
 - **Go を再コンパイルしない**：格納するのは配布アーカイブから取り出したバイナリである。イメージ内のバイナリは配布物とバイト単位で一致する
 - **ビルドコンテキスト**：Linux バイナリ 2 つだけを置いた専用ディレクトリを渡す。ソースコードは Buildx に渡らない。Buildx の既定の Git コンテキストは、先行ステップで用意したファイルを反映しないため使わない
 - **タグ**：`vX.Y.Z` だけを付け、`latest` は付けない。イメージの識別と検証には digest を使う
-- **OCI ラベル**：`org.opencontainers.image.source`、`org.opencontainers.image.revision`、`org.opencontainers.image.version` を付ける
+- **OCI ラベル**：次の 6 件を付ける。値はワークフローの `env` と `github` コンテキストから取り、ライセンスの識別子以外は手で書かない
+    - `org.opencontainers.image.title`：`playground-workflows`（`APP_NAME`）
+    - `org.opencontainers.image.source`：リポジトリの URL
+    - `org.opencontainers.image.url`：このバージョンの GitHub Release の URL（`<リポジトリの URL>/releases/tag/vX.Y.Z`）。Release は後の release ジョブで公開するため、公開されるまで、また実行が失敗して Release がないときは参照先がない
+    - `org.opencontainers.image.revision`：`GITHUB_SHA`
+    - `org.opencontainers.image.version`：タグ（`vX.Y.Z`）
+    - `org.opencontainers.image.licenses`：`Apache-2.0`（`LICENSE_SPDX_ID`）。`LICENSE` ファイルを SPDX 識別子で書いたもので、`LICENSE` を変えるときは同時に変える。GitHub の API（`GET /repos/{owner}/{repo}/license`）の `spdx_id` は、ファイルの中身から推定した値で推定に失敗しうるため使わない
+- **付けない OCI ラベル**：`created` は、イメージの設定の `created`（BuildKit がビルドの時刻を入れる）と意味が重なり、異なる2つの値が並ぶため付けない。`description` は機械的に生成できないため付けない。`base.name` と `base.digest` は、Dockerfile の `FROM` を解析して組み立て直すことになるため付けない
+- **ラベルの付く場所**：ラベルはプラットフォームごとのイメージの設定に入り、Image Index には入らない。GHCR のパッケージページは、マルチアーキテクチャのイメージでは Image Index の注釈を読むことがあるため、ラベルの値がパッケージページに表示されるとは限らない
 
 GHCR へは `docker/login-action` に `GITHUB_TOKEN` を渡してログインします。
 初回の公開直後のパッケージは非公開のため、パッケージの設定で公開範囲を Public に変え、リポジトリに紐づいていることを一度だけ確認します。

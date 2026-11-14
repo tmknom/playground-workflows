@@ -34,7 +34,7 @@ defaults:
 
 # APP_NAME は、次の箇所と同じ値にする。変えるときは、すべてを同時に変える。
 #   - .github/workflows/release-go-cli.yml の APP_NAME
-#   - .goreleaser.yaml の project_name と builds の binary
+#   - .goreleaser.yaml の project_name
 #   - Dockerfile の COPY と ENTRYPOINT のバイナリのパス
 env:
   APP_NAME: playground-workflows

@@ -1,6 +1,6 @@
 version: 2
 
-# project_name と builds の binary は、次の箇所と同じ値にする。変えるときは、すべてを同時に変える。
+# project_name は、次の箇所と同じ値にする。変えるときは、すべてを同時に変える。
 #   - .github/workflows/release-go-cli.yml の APP_NAME
 #   - .github/workflows/test-release-build.yml の APP_NAME
 #   - Dockerfile の COPY と ENTRYPOINT のバイナリのパス
@@ -9,8 +9,8 @@ project_name: playground-workflows
 builds:
   - id: cli
     main: .
-    # project_name と同じ値にする（同期の対象は project_name のコメントを参照）
-    binary: playground-workflows
+    # 既定値もプロジェクト名だが、アーカイブの確認がバイナリ名を APP_NAME と照合するため、project_name から取ることを明示する
+    binary: "{{ .ProjectName }}"
     goos:
       - linux
       - darwin
@@ -18,9 +18,28 @@ builds:
     goarch:
       - amd64
       - arm64
+    # 動作する CPU の下限を決める GOAMD64 と GOARM64 は、GoReleaser がターゲットごとにこの値で設定する。既定値と同じ値を明示する
+    goamd64:
+      - v1
+    goarm64:
+      - v8.0
+    # GoReleaser は runner の環境変数（go env -w の設定ファイルも含む）を引き継ぐため、ビルドに関わる変数は既定値でも明示し、環境に左右されないようにする。
+    # GOFLAGS は空にし、ビルドのフラグは flags だけで決める。
+    # 依存モジュールの完全性は go.sum との照合が保証し、-mod=readonly により go.sum にないモジュールはビルドを止める。
+    # GOPROXY 以下は、取得元を公開のプロキシとチェックサム DB に揃え、プロキシにないモジュールを VCS から直接取得しないようにする。
+    # reusable-build-lambda.yml の Build と同じ値にする。変えるときは、release-go-cli.yml の test ジョブの env も同時に変える
     env:
       - CGO_ENABLED=0
       - GOTOOLCHAIN=local
+      - GOFLAGS=
+      - GOEXPERIMENT=
+      - GOFIPS140=off
+      - GOPROXY=https://proxy.golang.org
+      - GOSUMDB=sum.golang.org
+      - GOPRIVATE=
+      - GONOPROXY=
+      - GONOSUMDB=
+      - GOINSECURE=
     flags:
       - -trimpath
       - -mod=readonly

@@ -17,12 +17,21 @@ defaults:
 
 # APP_NAME は、次の箇所と同じ値にする。変えるときは、すべてを同時に変える。
 #   - .github/workflows/test-release-build.yml の APP_NAME
-#   - .goreleaser.yaml の project_name と builds の binary
+#   - .goreleaser.yaml の project_name
 #   - Dockerfile の COPY と ENTRYPOINT のバイナリのパス
-# VERSION は起動したタグ（vX.Y.Z）で、GitHub Release と GHCR のタグに使う。アーカイブ名には先頭の v を除いた形が入る
+# VERSION は起動したタグ（vX.Y.Z）で、GitHub Release と GHCR のタグに使う。アーカイブ名には先頭の v を除いた形が入る。
+# イメージの参照は、名前を IMAGE_NAME、公開するタグを IMAGE_TAG、digest 付きの参照を container ジョブの出力 image だけで定め、各ジョブでは組み立てない。
+# env は同じ階層の env を参照できないため、IMAGE_TAG は IMAGE_NAME と VERSION と同じ式で書く。
+# SIGNER_WORKFLOW は、gh attestation verify で期待する署名したワークフローで、このファイルのパスにする。
+# LICENSE_SPDX_ID は、LICENSE ファイルのライセンスを SPDX 識別子で書いたもので、イメージのラベルに使う。
+# GitHub の API が推定する識別子は推定に失敗しうるため使わない。LICENSE を変えるときは同時に変える
 env:
   APP_NAME: playground-workflows
   VERSION: ${{ github.ref_name }}
+  IMAGE_NAME: ghcr.io/${{ github.repository }}
+  IMAGE_TAG: ghcr.io/${{ github.repository }}:${{ github.ref_name }}
+  SIGNER_WORKFLOW: ${{ github.repository }}/.github/workflows/release-go-cli.yml
+  LICENSE_SPDX_ID: Apache-2.0
 
 jobs:
   # リリースできない状態のタグでは、テストやビルドの前に止める
@@ -88,12 +97,11 @@ jobs:
       - name: Verify no image exists
         run: |
           set -euo pipefail
-          ref="ghcr.io/${GITHUB_REPOSITORY}:${VERSION}"
-          if err="$(docker buildx imagetools inspect "${ref}" 2>&1 > /dev/null)"; then
+          if err="$(docker buildx imagetools inspect "${IMAGE_TAG}" 2>&1 > /dev/null)"; then
             echo "::error::The image tag ${VERSION} already exists"
             exit 1
           fi
-          if [[ "${err}" != "ERROR: ${ref}: not found" ]]; then
+          if [[ "${err}" != "ERROR: ${IMAGE_TAG}: not found" ]]; then
             echo "::error::Could not check the image tag ${VERSION}: ${err}"
             exit 1
           fi
@@ -119,10 +127,21 @@ jobs:
           go-version-file: go.mod
           cache: false
 
+      # 配布するバイナリと同じ条件でテストし、依存モジュールの取得元も揃えるよう、.goreleaser.yaml の builds の env と同じ値にする。
+      # GOFLAGS だけは、GoReleaser の flags に当たる -mod=readonly をここに書く
       - name: Test
         env:
+          CGO_ENABLED: "0"
           GOTOOLCHAIN: local
           GOFLAGS: -mod=readonly
+          GOEXPERIMENT: ""
+          GOFIPS140: "off"
+          GOPROXY: https://proxy.golang.org
+          GOSUMDB: sum.golang.org
+          GOPRIVATE: ""
+          GONOPROXY: ""
+          GONOSUMDB: ""
+          GOINSECURE: ""
         run: |
           set -euo pipefail
           go mod download
@@ -342,7 +361,7 @@ jobs:
       id-token: write
       attestations: write
     outputs:
-      digest: ${{ steps.push.outputs.digest }}
+      image: ${{ steps.image.outputs.ref }}
     steps:
       # Dockerfile だけを取得する。リポジトリのコードは実行しない
       - name: Checkout
@@ -374,7 +393,7 @@ jobs:
             gh attestation verify "${file}" \
               --repo "${GITHUB_REPOSITORY}" \
               --predicate-type https://slsa.dev/provenance/v1 \
-              --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/release-go-cli.yml" \
+              --signer-workflow "${SIGNER_WORKFLOW}" \
               --signer-digest "${GITHUB_SHA}" \
               --source-ref "${GITHUB_REF}" \
               --source-digest "${GITHUB_SHA}" \
@@ -411,19 +430,20 @@ jobs:
       - name: Verify no image exists
         run: |
           set -euo pipefail
-          ref="ghcr.io/${GITHUB_REPOSITORY}:${VERSION}"
-          if err="$(docker buildx imagetools inspect "${ref}" 2>&1 > /dev/null)"; then
+          if err="$(docker buildx imagetools inspect "${IMAGE_TAG}" 2>&1 > /dev/null)"; then
             echo "::error::The image tag ${VERSION} already exists"
             exit 1
           fi
-          if [[ "${err}" != "ERROR: ${ref}: not found" ]]; then
+          if [[ "${err}" != "ERROR: ${IMAGE_TAG}: not found" ]]; then
             echo "::error::Could not check the image tag ${VERSION}: ${err}"
             exit 1
           fi
           echo "The image tag ${VERSION} does not exist"
 
       # docker/build-push-action は既定で、ビルドの記録（ビルドのログや設定、BuildKit の Provenance をまとめた .dockerbuild ファイル）を
-      # Actions Artifact としてアップロードする。調査のための記録で公開には使わず、受け渡す Artifact を release-assets だけにするよう止める
+      # Actions Artifact としてアップロードする。調査のための記録で公開には使わず、受け渡す Artifact を release-assets だけにするよう止める。
+      # url はこのバージョンの GitHub Release を指す。Release は後の release ジョブで公開するため、公開されるまでは参照先がない。
+      # created は、イメージの設定の created と意味が重なるため付けない
       - name: Build and push
         id: push
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
@@ -434,11 +454,28 @@ jobs:
           file: ${{ github.workspace }}/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
-          tags: ghcr.io/${{ github.repository }}:${{ env.VERSION }}
+          tags: ${{ env.IMAGE_TAG }}
           labels: |
+            org.opencontainers.image.title=${{ env.APP_NAME }}
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.url=${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ env.VERSION }}
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.version=${{ env.VERSION }}
+            org.opencontainers.image.licenses=${{ env.LICENSE_SPDX_ID }}
+
+      # 後続のジョブは、ここで作る digest 付きの参照だけを使い、イメージ名と digest から参照を組み立て直さない
+      - name: Output image reference
+        id: image
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          set -euo pipefail
+          if [[ ! "${DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::The image digest is not in the form of sha256:<hex>: ${DIGEST}"
+            exit 1
+          fi
+          echo "ref=${IMAGE_NAME}@${DIGEST}" >> "${GITHUB_OUTPUT}"
+          echo "Image reference: ${IMAGE_NAME}@${DIGEST}"
 
       # subject はタグではなく Image Index の digest にする。タグは付け替えられるため。
       # predicate の入力は Attest build provenance と同じく省き、検証する側で --predicate-type を明示する。
@@ -446,7 +483,7 @@ jobs:
       - name: Attest image
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
-          subject-name: ghcr.io/${{ github.repository }}
+          subject-name: ${{ env.IMAGE_NAME }}
           subject-digest: ${{ steps.push.outputs.digest }}
           push-to-registry: true
           create-storage-record: false
@@ -479,17 +516,17 @@ jobs:
         working-directory: ${{ runner.temp }}/release-assets
         env:
           ARCH: ${{ matrix.arch }}
-          IMAGE_DIGEST: ${{ needs.container.outputs.digest }}
+          IMAGE_REF: ${{ needs.container.outputs.image }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           version_number="${VERSION#v}"
           sha256sum -c SHA256SUMS
-          if [[ ! "${IMAGE_DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
-            echo "::error::The image digest is not in the form of sha256:<hex>"
+          # 出力の参照名を誤ると空文字になるため、受け取った参照の形を確かめる
+          if [[ ! "${IMAGE_REF}" =~ ^"${IMAGE_NAME}"@sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::The image reference is not in the form of ${IMAGE_NAME}@sha256:<hex>: ${IMAGE_REF}"
             exit 1
           fi
-          image="ghcr.io/${GITHUB_REPOSITORY}@${IMAGE_DIGEST}"
 
           # QEMU によるエミュレーションで別の CPU アーキテクチャのイメージを確かめないよう、
           # runner の CPU アーキテクチャが matrix の arch と一致することを確かめる
@@ -502,19 +539,19 @@ jobs:
           # イメージを実行する前に、来歴とバイナリを確かめる。
           # 検証するのは Image Index の digest である。プラットフォーム別のマニフェストには Attestation がない。
           # gh attestation verify は TTY がないと成功しても何も出力しないため、結果を出力する
-          gh attestation verify "oci://${image}" \
+          gh attestation verify "oci://${IMAGE_REF}" \
             --repo "${GITHUB_REPOSITORY}" \
             --predicate-type https://slsa.dev/provenance/v1 \
-            --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/release-go-cli.yml" \
+            --signer-workflow "${SIGNER_WORKFLOW}" \
             --signer-digest "${GITHUB_SHA}" \
             --source-ref "${GITHUB_REF}" \
             --source-digest "${GITHUB_SHA}" \
             --deny-self-hosted-runners
-          echo "Attestation verified: ${image}"
+          echo "Attestation verified: ${IMAGE_REF}"
 
           # イメージ内のバイナリが、配布アーカイブ内のバイナリとバイト単位で一致することを確かめる。
           # 実行ユーザーは、プラットフォームを指定して作ったコンテナの設定から読む
-          cid="$(docker create --platform "linux/${ARCH}" "${image}")"
+          cid="$(docker create --platform "linux/${ARCH}" "${IMAGE_REF}")"
           docker cp "${cid}:/usr/local/bin/${APP_NAME}" "${RUNNER_TEMP}/from-image"
           user="$(docker container inspect --format '{{.Config.User}}' "${cid}")"
           docker rm "${cid}"
@@ -528,7 +565,7 @@ jobs:
             exit 1
           fi
 
-          got="$(docker run --rm --platform "linux/${ARCH}" "${image}" --version)"
+          got="$(docker run --rm --platform "linux/${ARCH}" "${IMAGE_REF}" --version)"
           if [[ "${got}" != "${version_number}" ]]; then
             echo "::error::--version printed ${got}, but ${version_number} is expected"
             exit 1
@@ -586,7 +623,7 @@ jobs:
             gh attestation verify "${file}" \
               --repo "${GITHUB_REPOSITORY}" \
               --predicate-type https://slsa.dev/provenance/v1 \
-              --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/release-go-cli.yml" \
+              --signer-workflow "${SIGNER_WORKFLOW}" \
               --signer-digest "${GITHUB_SHA}" \
               --source-ref "${GITHUB_REF}" \
               --source-digest "${GITHUB_SHA}" \
@@ -597,16 +634,17 @@ jobs:
             echo "Attestation verified: ${file}"
           done
 
-      # 公開の前提となる、イメージの digest、タグの参照先、同じタグの Release の有無を確かめる。
+      # 公開の前提となる、イメージの参照、タグの参照先、同じタグの Release の有無を確かめる。
       # タグの付け替えを検出できる時間を短くするため、Publish release の直前に置く
       - name: Verify release target
         env:
-          IMAGE_DIGEST: ${{ needs.container.outputs.digest }}
+          IMAGE_REF: ${{ needs.container.outputs.image }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          if [[ ! "${IMAGE_DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
-            echo "::error::The image digest is not in the form of sha256:<hex>"
+          # 出力の参照名を誤ると空文字になるため、container-image.txt に書く参照の形を確かめる
+          if [[ ! "${IMAGE_REF}" =~ ^"${IMAGE_NAME}"@sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::The image reference is not in the form of ${IMAGE_NAME}@sha256:<hex>: ${IMAGE_REF}"
             exit 1
           fi
 
@@ -641,11 +679,11 @@ jobs:
       - name: Publish release
         working-directory: ${{ runner.temp }}/release-assets
         env:
-          IMAGE_DIGEST: ${{ needs.container.outputs.digest }}
+          IMAGE_REF: ${{ needs.container.outputs.image }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          echo "ghcr.io/${GITHUB_REPOSITORY}@${IMAGE_DIGEST}" > container-image.txt
+          echo "${IMAGE_REF}" > container-image.txt
           # プロセス置換の失敗は set -e で止まらないため、件数を確かめてから公開する
           mapfile -t files < <(awk '{print $2}' SHA256SUMS)
           if [[ "${#files[@]}" -ne 12 ]]; then
@@ -676,13 +714,12 @@ jobs:
 
       - name: Verify release
         env:
-          IMAGE_DIGEST: ${{ needs.container.outputs.digest }}
+          IMAGE_REF: ${{ needs.container.outputs.image }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           expected="${RUNNER_TEMP}/release-assets"
           published="${RUNNER_TEMP}/published"
-          image="ghcr.io/${GITHUB_REPOSITORY}"
 
           # Release が公開済みで、タグがビルドしたコミットを指したままである。
           # コミットの API に refs/tags/ 付きの ref を渡すと、軽量タグでも注釈付きタグでも、指しているコミットの SHA が得られる。
@@ -700,19 +737,19 @@ jobs:
           echo "The release ${VERSION} is published and the tag points to ${sha}"
 
           # 公開されたアセットが、正規の成果物に release と同じ方法で作った container-image.txt を加えたものと過不足なく一致する
-          echo "${image}@${IMAGE_DIGEST}" > "${expected}/container-image.txt"
+          echo "${IMAGE_REF}" > "${expected}/container-image.txt"
           gh release download "${VERSION}" --repo "${GITHUB_REPOSITORY}" --dir "${published}"
           diff -r "${expected}" "${published}"
           echo "Release assets match the canonical artifacts:"
           ls -1 "${published}"
 
-          # GHCR のバージョンタグが、container-image.txt に記録した digest を指している
-          got="$(docker buildx imagetools inspect "${image}:${VERSION}" --format '{{.Manifest.Digest}}')"
-          if [[ "${got}" != "${IMAGE_DIGEST}" ]]; then
-            echo "::error::${image}:${VERSION} points to ${got}, but ${IMAGE_DIGEST} is expected"
+          # GHCR のバージョンタグが、container-image.txt に記録した参照と同じイメージを指している
+          got="${IMAGE_NAME}@$(docker buildx imagetools inspect "${IMAGE_TAG}" --format '{{.Manifest.Digest}}')"
+          if [[ "${got}" != "${IMAGE_REF}" ]]; then
+            echo "::error::${IMAGE_TAG} points to ${got}, but ${IMAGE_REF} is expected"
             exit 1
           fi
-          echo "${image}:${VERSION} points to ${got}"
+          echo "${IMAGE_TAG} points to ${got}"
 
           # 公開されたアセットから、利用者と同じ手順で来歴を検証できる。
           # 利用者の手順に合わせ、--predicate-type は gh の既定値に任せる。
@@ -722,14 +759,14 @@ jobs:
           for file in ./*.tar.gz ./*.zip ./*.sbom.json; do
             gh attestation verify "${file}" \
               --repo "${GITHUB_REPOSITORY}" \
-              --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/release-go-cli.yml" \
+              --signer-workflow "${SIGNER_WORKFLOW}" \
               --source-ref "${GITHUB_REF}" \
               --deny-self-hosted-runners
             echo "Attestation verified: ${file#./}"
           done
           gh attestation verify "oci://$(cat container-image.txt)" \
             --repo "${GITHUB_REPOSITORY}" \
-            --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/release-go-cli.yml" \
+            --signer-workflow "${SIGNER_WORKFLOW}" \
             --source-ref "${GITHUB_REF}" \
             --deny-self-hosted-runners
           echo "Attestation verified: $(cat container-image.txt)"
