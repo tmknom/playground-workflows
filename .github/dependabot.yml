@@ -13,7 +13,7 @@ updates:
 
   - package-ecosystem: docker
     directories:
-      - /
       - /docker
+      - /docker/release-base
     schedule:
       interval: daily

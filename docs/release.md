@@ -99,7 +99,7 @@ GHCR への公開は、ビルドと配布アーカイブの確認、来歴証明
 | test | preflight | `contents: read` | あり |
 | build | test | `contents: read` | あり（全履歴） |
 | attest | build | `id-token: write`、`attestations: write` | なし |
-| container | build、attest | `contents: read`、`packages: write`、`id-token: write`、`attestations: write` | あり（Dockerfile だけを使う） |
+| container | build、attest | `contents: read`、`packages: write`、`id-token: write`、`attestations: write` | あり（ベースイメージの参照だけを読む） |
 | verify-image | container | `attestations: read` | なし |
 | release | attest、container、verify-image | `contents: write`、`attestations: read` | なし |
 | post-verify | container、release | `contents: read`、`attestations: read` | なし |
@@ -111,7 +111,7 @@ Action はトークンを引数で渡さなくても `github.token` を参照で
 
 - **コードを実行するジョブ**（test、build）には、OIDC と公開の権限を与えない
 - **署名するジョブ**（attest）は、Checkout もビルドもせず、受け取ったチェックサムに署名するだけにする
-- **公開するジョブ**（container、release）では、リポジトリのコードを実行しない。container は Dockerfile を読むためだけに Checkout し、release は Checkout せずに受け取ったファイルをデータとして登録する
+- **公開するジョブ**（container、release）では、リポジトリのコードを実行しない。container はベースイメージの参照を読むためだけに Checkout し、ビルドに使う Dockerfile はワークフロー定義の中で書き出す（[コンテナイメージ](#コンテナイメージ)）。release は Checkout せずに受け取ったファイルをデータとして登録する
 
 ## 各ジョブの責務
 
@@ -218,9 +218,10 @@ GHCR にはログインせず、匿名で取得します。
 Release はタグの指すコミットに付くため、タグが付け替えられていればビルドと異なるコミットに付いてしまうからです。
 確かめた直後の付け替えまでは防げないため、post-verify が公開後にもう一度確かめます。
 
-公開した Release は、バージョンの大小にかかわらず「Latest」になります。
+`gh release create` は `make_latest` を指定しないため、REST API の既定値 `true` により、公開した Release はバージョンの大小にかかわらず「Latest」になります。
 そのため、大きいバージョンを公開した後に小さいバージョンを公開すると（失敗した古い実行を後から再実行した場合など）、小さいほうが「Latest」を奪います。
-動作確認では、`make_latest: false` を渡しても、公開した小さいバージョンが「Latest」になりました。
+REST API は `make_latest` に `true`、`false`、`legacy` を定義していますが、このリポジトリでの動作確認では、`make_latest: false` を渡しても、公開した小さいバージョンが「Latest」になりました。
+`legacy` は確かめていません。
 防ぐには、公開の後に元の「Latest」へ `make_latest: true` を付け直す必要があります。
 
 この付け直しは、ワークフローでは行いません。
@@ -315,10 +316,10 @@ Go のバージョンは `go.mod` の `go` 行で固定し、`actions/setup-go` 
 
 ## コンテナイメージ
 
-リポジトリ直下の `Dockerfile` でイメージを定義します。
+イメージを定義する Dockerfile は、container ジョブがワークフロー定義の中で書き出します。
 
-- **ベースイメージ**：Distroless static の nonroot。非 cgo の Go バイナリが必要とすることの多い CA 証明書とタイムゾーン情報を含む。Image Index の digest で固定し、Dependabot（`docker` の `directories` に `/` を含める）で更新する
-- **`RUN` を使わない**：ビルド中に対象 CPU のプログラムを実行しないため、QEMU が要らない
+- **Dockerfile をワークフロー定義に固定する**：リポジトリに置いた Dockerfile をビルドに使わない。Dockerfile はビルドの定義で、`RUN`、`syntax` ディレクティブ（BuildKit が指定されたフロントエンドのイメージを取得し、ビルドに使う）、URL や Git リポジトリを指定した `ADD`、イメージを参照する `COPY --from` を加えると、ビルド中に実行したコマンドの結果や外部から取得したファイルが、配布アーカイブのような検証を経ずに署名付きのイメージに入る。container ジョブは公開と署名の権限を持つため、Dockerfile の内容を、もともと `main` の変更のレビューに依存しているワークフロー定義に置く。命令を検査する仕組みを持たずに済み、書き出す Dockerfile は `RUN` を使わないため、QEMU も要らない
+- **ベースイメージ**：Distroless static の nonroot。非 cgo の Go バイナリが必要とすることの多い CA 証明書とタイムゾーン情報を含む。Image Index の digest で固定し、Dependabot で更新する。Dependabot が読めるよう、固定する値は `docker/release-base/Dockerfile` の `FROM` に置き、`docker` の `directories` に `/docker/release-base` を含める。このファイルはビルドに使わず、container ジョブは、コメント行と空行を除いて digest で固定した `FROM` の 1 行だけであることを確かめてから、イメージの参照の文字列だけを取り出す
 - **Go を再コンパイルしない**：格納するのは配布アーカイブから取り出したバイナリである。イメージ内のバイナリは配布物とバイト単位で一致する
 - **ビルドコンテキスト**：Linux バイナリ 2 つだけを置いた専用ディレクトリを渡す。ソースコードは Buildx に渡らない。Buildx の既定の Git コンテキストは、先行ステップで用意したファイルを反映しないため使わない
 - **タグ**：`vX.Y.Z` だけを付け、`latest` は付けない。イメージの識別と検証には digest を使う
@@ -467,7 +468,7 @@ post-verify は、公開済みのアセットに対してこれと同じ引数�
 - **Action**：`uses` はすべて完全なコミット SHA で固定し、行末のコメントにバージョンを書く。更新は Dependabot（`github-actions`）に任せる
 - **GoReleaser と Syft**：GitHub Releases から Linux amd64 のアーカイブを取得し、ワークフローに書いた SHA-256 と照合してから使う。インストール用の Action（`goreleaser/goreleaser-action`、`anchore/sbom-action/download-syft`）は使わない。Action の SHA で固定できるのは Action のコードだけで、Action が実行時に取得するバイト列は固定できないためである。たとえば `goreleaser/goreleaser-action` v7.3.0 は、アーカイブを同じ Release の `checksums.txt` と照合するだけで、`checksums.txt` を取得できなければ警告を出して照合を飛ばし、cosign による署名の検証は runner に cosign があるときしか行わない。Dependabot では更新できないため、バージョンとハッシュは手動で更新し、release.yml と test-release-build.yml を同時に変える
 - **Go**：`go.mod` の `go` 行にパッチバージョンまで書いて固定する（[ビルドの設定](#ビルドの設定)）
-- **ベースイメージ**：Dockerfile の `FROM` に digest で固定する
+- **ベースイメージ**：Image Index の digest で固定し、Dependabot で更新する（[コンテナイメージ](#コンテナイメージ)）
 
 固定する値は、追加や更新のたびに公式のリリース情報で確認します。
 
@@ -488,7 +489,7 @@ cosign verify-blob syft_X.Y.Z_checksums.txt \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
-署名者の identity は、GoReleaser v2.19.0 と Syft v1.55.0 の署名証明書に記録された値です。
+署名者の identity は、GoReleaser v2.20.2 と Syft v1.57.1 の署名証明書に記録された値です。
 Syft はタグではなく `main` ブランチのワークフローで署名しているため、identity からはバージョンを確かめられません。
 
 ## 設計上の不変条件
@@ -499,12 +500,13 @@ Syft はタグではなく `main` ブランチのワークフローで署名し�
 4. リリースの工程でソースコードや依存の定義を変更しない。
 5. Go のバイナリは build ジョブの GoReleaser だけが生成し、コンテナ化で再コンパイルしない。
 6. コンテナ内のバイナリは、配布アーカイブ内の Linux バイナリとバイト単位で一致する。
-7. 来歴証明の subject は、配布アーカイブと SBOM の SHA-256、Image Index の digest である。
-8. OIDC の権限は attest と container だけに、公開の権限は container と release だけに与える。
-9. 必須の検証に失敗した場合は、GitHub Release を公開しない。
-10. 既存の GitHub Release と GHCR のバージョンタグを、自動で上書きしない。
-11. 公開済みの Release のアセットを自動で変更しない。作り直す場合は Release ごと削除する。
-12. 公開後に、GitHub Release と GHCR の成果物を正規の成果物と照合する。
+7. コンテナイメージは、digest で固定したベースイメージとビルドコンテキストのファイルだけで作り、ビルド中にコマンドを実行しない。
+8. 来歴証明の subject は、配布アーカイブと SBOM の SHA-256、Image Index の digest である。
+9. OIDC の権限は attest と container だけに、公開の権限は container と release だけに与える。
+10. 必須の検証に失敗した場合は、GitHub Release を公開しない。
+11. 既存の GitHub Release と GHCR のバージョンタグを、自動で上書きしない。
+12. 公開済みの Release のアセットを自動で変更しない。作り直す場合は Release ごと削除する。
+13. 公開後に、GitHub Release と GHCR の成果物を正規の成果物と照合する。
 
 ## 残るリスク
 
