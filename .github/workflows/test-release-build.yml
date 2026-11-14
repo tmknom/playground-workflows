@@ -1,14 +1,14 @@
 # Go CLI のリリース用ビルドを、プルリクエストの段階でテストするワークフロー。
 #
-# release-go-cli.yml の build ジョブと同じビルドと確認を、公開せずにスナップショットとして実行する。
+# release.yml の build ジョブと同じビルドと確認を、公開せずにスナップショットとして実行する。
 # GoReleaser の設定、GoReleaser と Syft の固定、Go のクロスコンパイル、配布アーカイブと SBOM の中身を、マージ前に確かめる。
 #
 # このワークフローが要るのは、リリース用ビルドを試す場所がほかにないためである。
-#   - release-go-cli.yml は main 上のタグでしか先へ進まないため、プルリクエストのブランチでは試せない
+#   - release.yml は main 上のタグでしか先へ進まないため、プルリクエストのブランチでは試せない
 #   - GoReleaser はローカルにインストールしない方針のため、手元でも試せない
 # これがないと、.goreleaser.yaml などの誤りにはマージ後のリリースで初めて気付き、修正とタグの付け直しが要る。
 #
-# build ジョブの処理を複製しているため、次の値と確認は release-go-cli.yml の build ジョブと同じにし、変えるときは両方を変える。
+# build ジョブの処理を複製しているため、次の値と確認は release.yml の build ジョブと同じにし、変えるときは両方を変える。
 #   - GoReleaser と Syft のバージョンとハッシュ
 #   - 配布アーカイブと SBOM の確認（Verify archives）
 name: Test Release Build
@@ -33,7 +33,7 @@ defaults:
     shell: bash
 
 # APP_NAME は、次の箇所と同じ値にする。変えるときは、すべてを同時に変える。
-#   - .github/workflows/release-go-cli.yml の APP_NAME
+#   - .github/workflows/release.yml の APP_NAME
 #   - .goreleaser.yaml の project_name
 #   - Dockerfile の COPY と ENTRYPOINT のバイナリのパス
 env:
@@ -59,7 +59,7 @@ jobs:
           go-version-file: go.mod
           cache: false
 
-      # GoReleaser と Syft は、release-go-cli.yml の build ジョブと同じバージョンとハッシュで固定してインストールする
+      # GoReleaser と Syft は、release.yml の build ジョブと同じバージョンとハッシュで固定してインストールする
       - name: Set up GoReleaser
         env:
           GORELEASER_VERSION: 2.19.0
@@ -134,7 +134,7 @@ jobs:
           sha256sum -c SHA256SUMS
 
           # 各アーカイブの直下に、バイナリと LICENSE だけがあることと、tar.gz のバイナリに実行権限があることを確かめる。
-          # release-go-cli.yml の build ジョブと同じ確認で、リリース前に PR で誤りを検出する
+          # release.yml の build ジョブと同じ確認で、リリース前に PR で誤りを検出する
           for archive in ${expected}; do
             if [[ "${archive}" == *.zip ]]; then
               entries="$(unzip -Z1 "${archive}" | sort)"
@@ -158,7 +158,7 @@ jobs:
           done
 
           # 各 SBOM が SPDX の JSON として読め、対象のアーカイブの名前と SHA-256 を記録していることを確かめる。
-          # release-go-cli.yml の build ジョブと同じ確認で、SBOM の中身の正確さまでは確かめない
+          # release.yml の build ジョブと同じ確認で、SBOM の中身の正確さまでは確かめない
           for archive in ${expected}; do
             digest="$(sha256sum "${archive}" | awk '{print $1}')"
             if ! jq -e --arg name "${archive}" --arg digest "${digest}" \

@@ -41,7 +41,7 @@ making it easier to manage changes and understand their impacts.
 
 ## Go CLI
 
-The `playground-workflows` CLI is released by the `.github/workflows/release-go-cli.yml` workflow.
+The `playground-workflows` CLI is released by the `.github/workflows/release.yml` workflow.
 Each release publishes the following assets on [GitHub Releases][releases]:
 
 - `playground-workflows_<version>_<os>_<arch>.tar.gz` (`<os>` is `linux` or `darwin`) and `playground-workflows_<version>_windows_<arch>.zip`. `<arch>` is `amd64` or `arm64`
@@ -71,14 +71,14 @@ An attestation is only meaningful when you check it against values you expect, s
 | Expected value | Value |
 |---|---|
 | Repository | `tmknom/playground-workflows` |
-| Signer workflow | `tmknom/playground-workflows/.github/workflows/release-go-cli.yml` |
+| Signer workflow | `tmknom/playground-workflows/.github/workflows/release.yml` |
 | Source ref | `refs/tags/vX.Y.Z` (the tag of the version you install) |
 | Runner | GitHub-hosted runners (`--deny-self-hosted-runners`) |
 
 ```bash
 gh attestation verify playground-workflows_X.Y.Z_linux_amd64.tar.gz \
   --repo tmknom/playground-workflows \
-  --signer-workflow tmknom/playground-workflows/.github/workflows/release-go-cli.yml \
+  --signer-workflow tmknom/playground-workflows/.github/workflows/release.yml \
   --source-ref refs/tags/vX.Y.Z \
   --deny-self-hosted-runners
 ```
@@ -107,7 +107,7 @@ Then verify the provenance with the same expected values as the archives:
 ```bash
 gh attestation verify "oci://$(cat container-image.txt)" \
   --repo tmknom/playground-workflows \
-  --signer-workflow tmknom/playground-workflows/.github/workflows/release-go-cli.yml \
+  --signer-workflow tmknom/playground-workflows/.github/workflows/release.yml \
   --source-ref refs/tags/vX.Y.Z \
   --deny-self-hosted-runners
 ```

@@ -1,7 +1,7 @@
 # Go CLI のリリースワークフロー設計
 
 このリポジトリの Go CLI（`playground-workflows`）を、Git タグのプッシュを起点に GitHub Releases と GitHub Container Registry（GHCR）へ公開するワークフローの設計です。
-対象はワークフロー `.github/workflows/release-go-cli.yml` の完成形で、各ジョブの責務、権限、成果物の受け渡し、検証の条件、失敗時の扱いを定めます。
+対象はワークフロー `.github/workflows/release.yml` の完成形で、各ジョブの責務、権限、成果物の受け渡し、検証の条件、失敗時の扱いを定めます。
 
 ## 対象と前提
 
@@ -245,7 +245,7 @@ GHCR にはログインせず、匿名で取得します。
 Verify assets は、公開するファイルを確かめます。
 
 1. `SHA256SUMS` に列挙されたファイル名が、タグのバージョンを含む期待どおりの 12 件（アーカイブ 6 件と SBOM 6 件）と一致することを確かめ、`sha256sum -c SHA256SUMS` で照合する
-2. 12 件のそれぞれで `gh attestation verify` を実行する。期待値は、predicate type（`https://slsa.dev/provenance/v1`）、リポジトリ、署名したワークフロー（`release-go-cli.yml`）、`--signer-digest` と `--source-digest` に `GITHUB_SHA`、`--source-ref` に `GITHUB_REF` である。`gh attestation verify` はファイルの digest だけで Attestation を探すため、`--format json` の出力から、ファイル名と digest の組が署名された subject に含まれることも確かめる
+2. 12 件のそれぞれで `gh attestation verify` を実行する。期待値は、predicate type（`https://slsa.dev/provenance/v1`）、リポジトリ、署名したワークフロー（`release.yml`）、`--signer-digest` と `--source-digest` に `GITHUB_SHA`、`--source-ref` に `GITHUB_REF` である。`gh attestation verify` はファイルの digest だけで Attestation を探すため、`--format json` の出力から、ファイル名と digest の組が署名された subject に含まれることも確かめる
 
 Verify release target は、公開の前提を確かめます。
 
@@ -280,7 +280,7 @@ Release はタグの指すコミットに付くため、`--target` ではタグ�
 
 この付け直しは、ワークフローでは行いません。
 古いバージョンを後から公開する場面はまれで、起きても「Latest」を手動で付け直せば済みます。
-一方で自動化すると、CLI のリリースが、関係のない Release（Lambda リリースの場合もある）を書き換えることになります。
+一方で自動化すると、CLI のリリースが、その実行で公開していない Release を書き換えることになります。
 代わりに、公開するバージョンが現在の「Latest」より `sort -V` で小さければ、警告を出します。
 警告のための確認なので、「Latest」を取得できなくても公開は止めません。
 
@@ -370,7 +370,7 @@ Go のビルドとパッケージングは GoReleaser OSS に任せ、担当範�
 - **`builds`**：`main: .`、`binary: "{{ .ProjectName }}"`、`goos` は linux / darwin / windows、`goarch` は amd64 / arm64。`goamd64` は `v1`、`goarm64` は `v8.0` で、動作する CPU の下限を既定値と同じ値で明示する
 - **環境変数**：GoReleaser は runner の環境変数（`go env -w` の設定ファイルも含む）を引き継ぐため、ビルドに関わる変数を既定値でも明示する
     - バイナリを変える変数：`CGO_ENABLED=0`、`GOTOOLCHAIN=local`、`GOFLAGS=`（ビルドのフラグは `flags` だけで決める）、`GOEXPERIMENT=`、`GOFIPS140=off`
-    - 依存モジュールの取得元：`GOPROXY=https://proxy.golang.org`、`GOSUMDB=sum.golang.org`、`GOPRIVATE`、`GONOPROXY`、`GONOSUMDB`、`GOINSECURE` は空。取得元を公開のプロキシとチェックサム DB に揃え、プロキシにないモジュールを VCS から直接取得しない。完全性は `go.sum` との照合が保証し、`-mod=readonly` により `go.sum` にないモジュールはビルドを止める。値は Lambda のビルド（`reusable-build-lambda.yml`）と同じにする
+    - 依存モジュールの取得元：`GOPROXY=https://proxy.golang.org`、`GOSUMDB=sum.golang.org`、`GOPRIVATE`、`GONOPROXY`、`GONOSUMDB`、`GOINSECURE` は空。取得元を公開のプロキシとチェックサム DB に揃え、プロキシにないモジュールを VCS から直接取得しない。完全性は `go.sum` との照合が保証し、`-mod=readonly` により `go.sum` にないモジュールはビルドを止める
 - **フラグ**：`-trimpath`、`-mod=readonly`
 - **`ldflags`**：`-s -w -X main.version={{ .Version }}`
 - **`mod_timestamp`**：`{{ .CommitTimestamp }}`。バイナリの更新時刻をビルド時刻ではなくコミット時刻にする
@@ -486,7 +486,6 @@ GHCR の該当バージョンは、パッケージの設定画面から削除し
 preflight は同じバージョンの Release と GHCR のタグがあると止まるため、一部だけ削除した状態では再実行できません。
 
 `concurrency` は `group: release`、`cancel-in-progress: false` とし、実行中の公開を後続の実行が取り消さないようにします。
-グループ名は Lambda のリリースと共有します（[Lambda リリースとの共存](#lambda-リリースとの共存)）。
 `queue` は既定の `single` のままのため、グループ内で待機できる実行は1つだけです。
 待機中の実行は、後から待機に入った実行に置き換えられて取り消されます。
 取り消された実行は、何も公開していないため、再実行してやり直します。
@@ -520,7 +519,7 @@ Attestation は、検証する側が期待値を知っていて初めて意味�
 | 期待値 | 値 |
 |---|---|
 | リポジトリ | `tmknom/playground-workflows` |
-| 署名したワークフロー | `tmknom/playground-workflows/.github/workflows/release-go-cli.yml` |
+| 署名したワークフロー | `tmknom/playground-workflows/.github/workflows/release.yml` |
 | ソースの ref | `refs/tags/vX.Y.Z` |
 | 実行基盤 | GitHub-hosted runners（`--deny-self-hosted-runners`） |
 
@@ -529,7 +528,7 @@ Attestation は、検証する側が期待値を知っていて初めて意味�
 ```bash
 gh attestation verify playground-workflows_X.Y.Z_linux_amd64.tar.gz \
   --repo tmknom/playground-workflows \
-  --signer-workflow tmknom/playground-workflows/.github/workflows/release-go-cli.yml \
+  --signer-workflow tmknom/playground-workflows/.github/workflows/release.yml \
   --source-ref refs/tags/vX.Y.Z \
   --deny-self-hosted-runners
 ```
@@ -541,14 +540,14 @@ SBOM も、ファイル名を `<アーカイブ名>.sbom.json` に変えた同�
 ```bash
 gh attestation verify "oci://$(cat container-image.txt)" \
   --repo tmknom/playground-workflows \
-  --signer-workflow tmknom/playground-workflows/.github/workflows/release-go-cli.yml \
+  --signer-workflow tmknom/playground-workflows/.github/workflows/release.yml \
   --source-ref refs/tags/vX.Y.Z \
   --deny-self-hosted-runners
 ```
 
 署名したワークフローは、`--cert-identity` ではなく `--signer-workflow` で指定します。
 GitHub CLI v2.103.3 では、`--signer-workflow` は前方一致ではありませんでした。
-`release-go-cli.ym` のような途中までのパス、`.` を別の文字に変えたパス、`release-go-cli.yml@refs` のように ref の途中までを付けた値では、検証が失敗しました。
+`release.ym` のような途中までのパス、`.` を別の文字に変えたパス、`release.yml@refs` のように ref の途中までを付けた値では、検証が失敗しました。
 渡したパスの直後に、証明書の SubjectAlternativeName の `@<ref>` が続く場合だけ一致すると考えられます。
 `--cert-identity` はタグまで含む値を渡す必要があり、タグの照合は `--source-ref` と重なります。
 
@@ -561,23 +560,10 @@ Index に含まれる `linux/amd64` や `linux/arm64` のマニフェストの d
 post-verify は、公開済みのアセットに対してこれと同じ引数で検証を実行します。
 そのため、利用者向けの手順が実際に通ることを、リリースのたびに確かめられます。
 
-## Lambda リリースとの共存
-
-このリポジトリには、同じ `main.go` を AWS Lambda 用にビルドして GitHub Release を作る別のワークフロー（`release-lambda.yml`）があります。
-両者は次の点で影響し合います。
-
-- **バージョン番号を共有する**：Lambda リリースも `vX.Y.Z` のタグと GitHub Release を作るため、同じ番号は片方しか使えない。検証用リポジトリのため、この共有を受け入れる
-- **ソースを共有する**：CLI に加える変更（`--version` など）は Lambda のバイナリにも入る
-- **二重起動は起きない**：Lambda リリースは `GITHUB_TOKEN` でタグを作る。`GITHUB_TOKEN` による push は新しいワークフローを起動しないため、Lambda リリースが作ったタグで CLI のリリースは始まらない
-- **実行を重ねない**：どちらもタグと GitHub Release を作るため、`concurrency` のグループを `release` で共有する
-
-Lambda リリースは直近のタグから次のバージョンを計算するため、動作確認用に作ったタグを残すと、その計算に影響する可能性があります。
-確認に使ったタグは削除します。
-
 ## 外部 Action とツールの固定
 
 - **Action**：`uses` はすべて完全なコミット SHA で固定し、行末のコメントにバージョンを書く。更新は Dependabot（`github-actions`）に任せる
-- **GoReleaser と Syft**：GitHub Releases から Linux amd64 のアーカイブを取得し、ワークフローに書いた SHA-256 と照合してから使う。インストール用の Action（`goreleaser/goreleaser-action`、`anchore/sbom-action/download-syft`）は使わない。Action の SHA で固定できるのは Action のコードだけで、Action が実行時に取得するバイト列は固定できないためである。たとえば `goreleaser/goreleaser-action` v7.3.0 は、アーカイブを同じ Release の `checksums.txt` と照合するだけで、`checksums.txt` を取得できなければ警告を出して照合を飛ばし、cosign による署名の検証は runner に cosign があるときしか行わない。Dependabot では更新できないため、バージョンとハッシュは手動で更新し、release-go-cli.yml と test-release-build.yml を同時に変える
+- **GoReleaser と Syft**：GitHub Releases から Linux amd64 のアーカイブを取得し、ワークフローに書いた SHA-256 と照合してから使う。インストール用の Action（`goreleaser/goreleaser-action`、`anchore/sbom-action/download-syft`）は使わない。Action の SHA で固定できるのは Action のコードだけで、Action が実行時に取得するバイト列は固定できないためである。たとえば `goreleaser/goreleaser-action` v7.3.0 は、アーカイブを同じ Release の `checksums.txt` と照合するだけで、`checksums.txt` を取得できなければ警告を出して照合を飛ばし、cosign による署名の検証は runner に cosign があるときしか行わない。Dependabot では更新できないため、バージョンとハッシュは手動で更新し、release.yml と test-release-build.yml を同時に変える
 - **Go**：`go.mod` の `go` 行にパッチバージョンまで書いて固定する（[ビルドの設定](#ビルドの設定)）
 - **ベースイメージ**：Dockerfile の `FROM` に digest で固定する
 
@@ -641,7 +627,7 @@ Syft はタグではなく `main` ブランチのワークフローで署名し�
 | コンテナイメージの SBOM | 提供を求められたとき | 格納するバイナリは配布アーカイブと同じため、アーカイブの SBOM で代えられないかを先に判断する |
 | `govulncheck` | 外部のモジュールへの依存が増えたとき | 通常 CI と定期実行で既知の脆弱性を検出し、結果からリスクを評価する。リリースワークフローには加えない。脆弱性を減らすリリースまで止めないよう、検出の有無をリリースの必須条件にしない |
 | 再ビルドによる再現性の確認 | Attestation と実行確認に加えて必要と判断したとき | 別の runner で再ビルドし、正規の `SHA256SUMS` のアーカイブの行で照合する。SBOM は生成のたびに変わるため照合から外す。アーカイブ内のファイルの時刻、所有者、権限の固定が必要になる可能性がある |
-| Immutable Release | 削除を伴う試行が不要になったとき（Lambda リリースも含む） | Immutable Releases と Tag Rulesets を有効にし、post-verify と利用者向けの手順に `gh release verify` を加える |
+| Immutable Release | 削除を伴う試行が不要になったとき | Immutable Releases と Tag Rulesets を有効にし、post-verify と利用者向けの手順に `gh release verify` を加える |
 | deb / rpm / apk | 配布を求められたとき | GoReleaser の `nfpms` を第一候補とし、build が生成したバイナリを再コンパイルせずに格納する |
 | Homebrew Formula | 配布を求められたとき | 別リポジトリへの書き込み権限と認証情報の設計が必要になる |
 
