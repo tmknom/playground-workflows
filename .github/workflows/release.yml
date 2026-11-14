@@ -6,7 +6,7 @@ on:
 
 permissions: {}
 
-# Lambda のリリースと同じグループにして、バージョンの計算と公開を重ねない
+# リリースを同時に実行せず、実行中の公開を後続の実行が取り消さないようにする
 concurrency:
   group: release
   cancel-in-progress: false
@@ -19,12 +19,11 @@ defaults:
 #   - .github/workflows/test-release-build.yml の APP_NAME
 #   - .goreleaser.yaml の project_name
 #   - Dockerfile の COPY と ENTRYPOINT のバイナリのパス
-# VERSION は起動したタグ（vX.Y.Z）で、GitHub Release と GHCR のタグに使う。アーカイブ名には先頭の v を除いた形が入る。
 # イメージの参照は、名前を IMAGE_NAME、公開するタグを IMAGE_TAG、digest 付きの参照を container ジョブの出力 image だけで定め、各ジョブでは組み立てない。
 # env は同じ階層の env を参照できないため、IMAGE_TAG は IMAGE_NAME と VERSION と同じ式で書く。
-# SIGNER_WORKFLOW は、gh attestation verify で期待する署名したワークフローで、このファイルのパスにする。
-# LICENSE_SPDX_ID は、LICENSE ファイルのライセンスを SPDX 識別子で書いたもので、イメージのラベルに使う。
-# GitHub の API が推定する識別子は推定に失敗しうるため使わない。LICENSE を変えるときは同時に変える
+# SIGNER_WORKFLOW は、このファイルのパスと一致させる。
+# LICENSE_SPDX_ID は、LICENSE ファイルのライセンスを SPDX 識別子で書いたもので、LICENSE を変えるときは同時に変える。
+# GitHub の API が推定する識別子は推定に失敗しうるため使わない
 env:
   APP_NAME: playground-workflows
   VERSION: ${{ github.ref_name }}
@@ -36,7 +35,8 @@ env:
 jobs:
   # リリースできない状態のタグでは、テストやビルドの前に止める
   preflight:
-    # 再実行では actor が最初の実行者のまま変わらないため、再実行した者も triggering_actor で確かめる
+    # 再実行では actor が最初の実行者のまま変わらないため、再実行した者も triggering_actor で確かめる。
+    # 「Re-run failed jobs」では成功済みのジョブの if が評価し直されないため、全ジョブに同じ条件を置く
     if: ${{ github.actor_id == github.repository_owner_id && github.triggering_actor == github.repository_owner }}
     runs-on: ubuntu-24.04
     timeout-minutes: 5
@@ -109,7 +109,6 @@ jobs:
 
   test:
     needs: [preflight]
-    # 「Re-run failed jobs」では成功済みのジョブの if が評価し直されないため、権限を持つジョブを守るよう全ジョブに同じ条件を置く
     if: ${{ github.actor_id == github.repository_owner_id && github.triggering_actor == github.repository_owner }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -153,8 +152,6 @@ jobs:
   # GoReleaser と Syft のバージョンとハッシュ、Verify archives の確認を変えるときは、test-release-build.yml も同時に変える
   build:
     needs: [test]
-    # 「Re-run failed jobs」では成功済みのジョブの if が評価し直されないため、権限を持つジョブを守るよう全ジョブに同じ条件を置く。
-    # build 自体は読み取り専用で、この条件がなくても公開には届かない
     if: ${{ github.actor_id == github.repository_owner_id && github.triggering_actor == github.repository_owner }}
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -175,10 +172,8 @@ jobs:
           cache: false
 
       # GoReleaser と Syft は、アーカイブの SHA-256 で固定してからインストールする。
-      # goreleaser/goreleaser-action や Syft のインストール用 Action は、Action のコードは固定できても、
-      # 実行時に取得するバイナリは同じ Release の checksums.txt と照合するだけで、ワークフロー側では固定できないため使わない。
-      # 両ツールは checksums.txt に cosign の署名を付けているが、ハッシュを固定すれば実行時の署名検証は完全性に何も加えない。
-      # 署名は、バージョンとハッシュを更新するときに確かめる
+      # インストール用の Action は、実行時に取得するバイナリをワークフロー側で固定できないため使わない。
+      # 更新するときの署名の確認手順は、docs/release.md の「外部 Action とツールの固定」にある
       - name: Set up GoReleaser
         env:
           GORELEASER_VERSION: 2.19.0
@@ -220,8 +215,7 @@ jobs:
           goreleaser check
           goreleaser release --clean --skip=publish,announce
 
-      # アーカイブと SBOM の過不足、バージョンの食い違い、SHA256SUMS への想定外の記載、アーカイブの中身の誤りを検出する。
-      # バイナリの実行を照合より前に済ませ、照合の後はアップロードだけにする
+      # 照合したファイルをそのままアップロードするよう、バイナリの実行は最後の sha256sum -c より前に済ませる
       - name: Verify archives
         working-directory: dist
         run: |
@@ -252,7 +246,6 @@ jobs:
             exit 1
           fi
 
-          # 各アーカイブの直下に、バイナリと LICENSE だけがあることと、tar.gz のバイナリに実行権限があることを確かめる。
           # 実行権限はバイナリの存在を確かめてから調べる。バイナリがないと tar が失敗し、原因がわかりにくくなるため
           for archive in ${expected}; do
             if [[ "${archive}" == *.zip ]]; then
@@ -276,8 +269,7 @@ jobs:
             fi
           done
 
-          # 各 SBOM が SPDX の JSON として読め、対象のアーカイブの名前と SHA-256 を記録していることを確かめる。
-          # SBOM の中身の正確さまでは確かめない
+          # SBOM が対象のアーカイブを記述していることだけを確かめ、記載内容の正確さは確かめない
           for archive in ${expected}; do
             digest="$(sha256sum "${archive}" | awk '{print $1}')"
             if ! jq -e --arg name "${archive}" --arg digest "${digest}" \
@@ -377,8 +369,7 @@ jobs:
           name: release-assets
           path: ${{ runner.temp }}/release-assets
 
-      # GHCR への公開も取り消しにくいため、release と同じく、イメージに入れるバイナリを取り出す Linux 向けアーカイブが、
-      # このワークフローによって同じコミットとタグで署名されたものであることを確かめる。
+      # GHCR への公開も取り消しにくいため、イメージに入れるバイナリを取り出す Linux 向けアーカイブの来歴を、release と同じ条件で確かめる。
       # gh attestation verify はファイルの digest だけで Attestation を照合するため、署名された subject の名前も確かめる
       - name: Verify Linux archives
         working-directory: ${{ runner.temp }}/release-assets
@@ -442,8 +433,9 @@ jobs:
 
       # docker/build-push-action は既定で、ビルドの記録（ビルドのログや設定、BuildKit の Provenance をまとめた .dockerbuild ファイル）を
       # Actions Artifact としてアップロードする。調査のための記録で公開には使わず、受け渡す Artifact を release-assets だけにするよう止める。
-      # url はこのバージョンの GitHub Release を指す。Release は後の release ジョブで公開するため、公開されるまでは参照先がない。
-      # created は、イメージの設定の created と意味が重なるため付けない
+      # url の Release は後の release ジョブで公開するため、公開されるまでは参照先がない。
+      # created は、イメージの設定の created（BuildKit がビルドの時刻を入れる）と異なる値が並ぶため付けない。
+      # description は機械的に生成できず、base.name と base.digest は Dockerfile の FROM を解析し直すことになるため付けない
       - name: Build and push
         id: push
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
@@ -673,9 +665,9 @@ jobs:
           fi
           echo "The release ${VERSION} can be published for ${GITHUB_SHA}"
 
-      # 登録するのは、Verify assets で照合と来歴の検証をしたアーカイブと SBOM、SHA256SUMS、container-image.txt だけにする。
+      # 登録するファイルはディレクトリの中身すべてにせず SHA256SUMS の列挙から取り、照合も署名もしていないファイルが黙って公開されるのを防ぐ。
       # --verify-tag はタグがなければ失敗させ、gh がタグを新しく作ることを防ぐ。
-      # タグがあれば --target はタグの作成に使われず、Release のメタデータに記録されるだけである
+      # タグがあれば --target はタグの作成に使われず、Release のメタデータ（target_commitish）に記録されるだけである。省くと既定ブランチの名前が記録される
       - name: Publish release
         working-directory: ${{ runner.temp }}/release-assets
         env:
@@ -752,7 +744,8 @@ jobs:
           echo "${IMAGE_TAG} points to ${got}"
 
           # 公開されたアセットから、利用者と同じ手順で来歴を検証できる。
-          # 利用者の手順に合わせ、--predicate-type は gh の既定値に任せる。
+          # 利用者の手順に合わせ、--predicate-type は gh の既定値に任せ、--signer-digest と --source-digest も付けない。
+          # コミットとの対応は、diff -r とタグの参照先の確認で確かめている。
           # アセットの名前は diff -r で照合済みのため、subject の名前は確かめない。
           # gh attestation verify は TTY がないと成功しても何も出力しないため、結果を出力する
           cd "${published}"
