@@ -148,7 +148,7 @@ jobs:
 
       # GoReleaser が SBOM の生成に呼び出す Syft を入れる。
       # Action を使うと Action のコードは固定できても、実行時に取得する Syft は固定できないため、アーカイブの SHA-256 で固定する。
-      # 版とハッシュは verify-goreleaser.yml と同じ値にする
+      # バージョンとハッシュは verify-goreleaser.yml と同じ値にする
       - name: Set up Syft
         env:
           SYFT_VERSION: 1.55.0
@@ -395,8 +395,8 @@ jobs:
           push-to-registry: true
           create-storage-record: false
 
-  # GHCR に公開したイメージを digest で取得し、runner の CPU ごとに検証する。
-  # Image Index から runner の CPU に合うイメージが選ばれるため、amd64 と arm64 の runner で1回ずつ実行する
+  # GHCR に公開したイメージを digest で取得し、runner の CPU アーキテクチャごとに検証する。
+  # Image Index から runner の CPU アーキテクチャに合うイメージが選ばれるため、amd64 と arm64 の runner で1回ずつ実行する
   verify-image:
     needs: [container]
     if: ${{ github.actor_id == github.repository_owner_id && github.triggering_actor == github.repository_owner }}
@@ -435,7 +435,8 @@ jobs:
           fi
           image="ghcr.io/${GITHUB_REPOSITORY}@${IMAGE_DIGEST}"
 
-          # QEMU によるエミュレーションで別の CPU のイメージを確かめないよう、runner の CPU が matrix の arch と一致することを確かめる
+          # QEMU によるエミュレーションで別の CPU アーキテクチャのイメージを確かめないよう、
+          # runner の CPU アーキテクチャが matrix の arch と一致することを確かめる
           host="$(docker version --format '{{.Server.Arch}}')"
           if [[ "${host}" != "${ARCH}" ]]; then
             echo "::error::The runner is ${host}, but ${ARCH} is expected"
@@ -542,7 +543,7 @@ jobs:
       # 登録するのは、Verify assets で照合と来歴の検証をしたアーカイブと SBOM、SHA256SUMS、container-image.txt だけにする。
       # --verify-tag はタグがなければ失敗させ、gh がタグを新しく作ることを防ぐ。
       # タグがあれば --target はタグの作成に使われず、Release のメタデータに記録されるだけのため、タグの参照先は公開の直前に別に確かめる。
-      # 同じバージョンの Release があれば gh release create が失敗し、既存の Release は書き換えない
+      # 同じタグの Release は Draft も含めて作成の前に確かめ、既存の Release は書き換えない
       - name: Publish release
         working-directory: ${{ runner.temp }}/release-assets
         env:
@@ -570,8 +571,8 @@ jobs:
             exit 1
           fi
 
-          # 前の実行の gh release create が途中で失敗すると、資産の一部だけを持つ Draft が残る可能性がある。
-          # Draft があっても gh release create が失敗するとは限らないため、Draft も含めて同じタグの Release がないことを確かめる
+          # 前の実行が Draft の作成や公開の途中で失敗すると、Draft が残る可能性がある。
+          # Draft があっても gh release create --draft が失敗するとは限らないため、Draft も含めて同じタグの Release がないことを確かめる
           ids="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/releases" --jq ".[] | select(.tag_name == \"${VERSION}\") | .id")"
           if [[ -n "${ids}" ]]; then
             echo "::error::A release for ${VERSION} already exists, including drafts: ${ids//$'\n'/ }"
@@ -580,19 +581,29 @@ jobs:
 
           # API の既定では公開した Release が Latest になり、後から古いバージョンを公開すると Latest を奪う。
           # 既存の Latest のほうが大きいバージョンなら、Latest にしない
-          latest_flag=--latest
+          make_latest=true
           if latest="$(gh api "repos/${GITHUB_REPOSITORY}/releases/latest" --jq .tag_name 2> "${RUNNER_TEMP}/latest.err")"; then
             if [[ "$(printf '%s\n' "${latest}" "${VERSION}" | sort -V | tail -n 1)" != "${VERSION}" ]]; then
-              latest_flag=--latest=false
+              make_latest=false
             fi
           elif ! grep -q "(HTTP 404)" "${RUNNER_TEMP}/latest.err"; then
             echo "::error::Could not check the latest release: $(cat "${RUNNER_TEMP}/latest.err")"
             exit 1
           fi
-          echo "Latest release: ${latest:-none}, publishing ${VERSION} with ${latest_flag}"
+          echo "Latest release: ${latest:-none}, publishing ${VERSION} with make_latest=${make_latest}"
 
+          # 資産を指定した gh release create は Draft を作ってから公開するが、--latest=false を渡しても公開した Release が Latest になった。
+          # gh が公開のリクエストをどう組み立てるかに依存しないよう、資産付きの Draft を作った後、
+          # draft と make_latest を同じリクエストで明示して公開する
           gh release create "${VERSION}" --repo "${GITHUB_REPOSITORY}" --verify-tag --target "${GITHUB_SHA}" \
-            "${latest_flag}" --title "${VERSION}" --generate-notes "${files[@]}" SHA256SUMS container-image.txt
+            --draft --title "${VERSION}" --generate-notes "${files[@]}" SHA256SUMS container-image.txt
+          id="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/releases" --jq ".[] | select(.tag_name == \"${VERSION}\" and .draft) | .id")"
+          if [[ ! "${id}" =~ ^[0-9]+$ ]]; then
+            echo "::error::Expected exactly one draft release for ${VERSION}, but found: ${id//$'\n'/ }"
+            exit 1
+          fi
+          gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/${id}" \
+            -F draft=false -f make_latest="${make_latest}" --jq .html_url
 
   # 公開した GitHub Release と GHCR のイメージを取得し直し、正規の成果物と照合する。このジョブの成功をもってワークフローの成功とする。
   # 失敗した時点で Release は公開済みだが、自動では取り消さない

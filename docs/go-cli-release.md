@@ -224,8 +224,9 @@ GHCR にはログインせず、匿名で取得します。
 4. `ghcr.io/tmknom/playground-workflows@sha256:<digest>` を1行で書いた `container-image.txt` を作る
 5. コミットの API に `refs/tags/vX.Y.Z` を渡して得た SHA が `GITHUB_SHA` と一致することを確かめる
 6. Draft を含めて、同じタグの Release がないことを確かめる
-7. 現在の「Latest」の Release のバージョンと比べ、公開するバージョンのほうが大きければ `--latest`、小さければ `--latest=false` を選ぶ
-8. `gh release create <タグ> --verify-tag --target <GITHUB_SHA> <手順 7 のフラグ> --title <タグ> --generate-notes` で公開する。資産として登録するのは、`SHA256SUMS` に列挙されたアーカイブと SBOM、`SHA256SUMS`、`container-image.txt` だけである。列挙が 12 件でなければ公開しない
+7. 現在の「Latest」の Release のバージョンと比べ、公開するバージョンのほうが大きければ `make_latest` を `true`、小さければ `false` に決める
+8. `gh release create <タグ> --verify-tag --target <GITHUB_SHA> --draft --title <タグ> --generate-notes` で、資産付きの Draft を作る。資産として登録するのは、`SHA256SUMS` に列挙されたアーカイブと SBOM、`SHA256SUMS`、`container-image.txt` だけである。列挙が 12 件でなければ作らない
+9. 作った Draft がちょうど1件であることを確かめ、REST API の `PATCH` で `draft: false` と手順 7 の `make_latest` を同じリクエストで渡して公開する
 
 `SHA256SUMS` との照合だけでは、アーカイブと `SHA256SUMS` が一緒に差し替えられた場合を検出できません。
 署名の検証を加えることで、公開するアーカイブが、このワークフローによって同じコミットとタグで署名されたものであることを確かめます。
@@ -240,19 +241,31 @@ subject の名前を確かめるのは、署名されたアーカイブ同士で
 Release はタグの指すコミットに付くため、`--target` ではタグの付け替えを検出できません。
 そのため、公開の直前にタグの参照先を確かめます。
 確かめた直後の付け替えまでは防げないため、post-verify が公開後にもう一度確かめます。
-同じバージョンの公開済みの Release がすでにあれば `gh release create` が失敗し、既存の Release は書き換えません。
 
 REST API の `make_latest` は、新しく公開した Release では既定で `true` です。
 既定のままだと、大きいバージョンを公開した後に小さいバージョンを公開したとき（失敗した古い実行を後から再実行した場合など）、小さいほうが「Latest」を奪います。
-そのため、現在の「Latest」と `sort -V` で比べ、公開するバージョンが小さければ `--latest=false` を渡します。
+そのため、現在の「Latest」と `sort -V` で比べ、公開するバージョンが小さければ `make_latest` を `false` にします。
 動作確認で既存より小さい `v0.0.N` を公開しても、「Latest」は変わりません。
 「Latest」の Release は Lambda リリースと共有するため、比べる相手は Lambda リリースの場合もあります。
 
-Draft を確認してから公開する独立した工程は設けません。
-Draft と公開の間に挟む確認がないためです。
-ただし、資産を指定した `gh release create` は、内部で Draft を作り、資産をアップロードしてから公開します。
-途中で失敗すると、資産の一部だけを持つ Draft が残る可能性があります。
-Draft があっても `gh release create` が失敗するとは限らないため、公開の前に Draft を含めて同じタグの Release がないことを確かめます。
+`make_latest` は、`gh release create` のフラグではなく、公開のリクエストに直接渡します。
+`v0.0.5` の動作確認では、資産を指定した `gh release create` に `--latest=false` を渡しても、公開した Release が「Latest」になりました。
+`gh` は資産を指定すると Draft を作ってから公開するため、`--latest=false` が公開のリクエストに反映されなかった可能性があります。
+`gh` の内部の手順に依存しないよう、Draft の作成と公開を分け、公開のリクエストで `draft` と `make_latest` を明示します。
+
+比べる相手は「現在の Latest」で、「存在するすべての Release の最大バージョン」ではありません。
+この比較が正しく働くのは、次の前提が成り立つ場合に限ります。
+
+- CLI と Lambda のどちらのリリースも、`vX.Y.Z` 形式の安定版だけを公開する
+- 「Latest」を、最大バージョンより古い Release へ手動で付け替えない
+
+付け替えられていると、その Latest より大きく最大バージョンより小さいバージョンを公開したときに、Latest になってしまいます。
+
+Draft を作ってから公開しますが、その間に人が Draft を確認する工程は設けません。
+Draft は資産をすべて登録してから公開するための手段で、間に挟む確認がないためです。
+Draft の作成や公開の途中で失敗すると、Draft が残る可能性があります。
+Draft があっても `gh release create --draft` が失敗するとは限らないため、作成の前に Draft を含めて同じタグの Release がないことを確かめます。
+同じタグの Release は公開済みのものも含めてこの確認で止まるため、既存の Release を書き換えません。
 post-verify も、Release が Draft でないことを確かめます。
 
 ### post-verify
@@ -412,7 +425,7 @@ GHCR への公開は、GitHub Release の公開と同義ではありません。
 | preflight、test、build、attest | 何も公開されていない。原因を直し、必要ならタグを削除して新しいコミットにタグを付け直す。ソースが変わらないなら失敗したジョブを再実行してよい |
 | container | GHCR にイメージがある可能性がある。公開前に失敗したなら「Re-run failed jobs」で再実行してよい。公開後に失敗したなら、再実行は公開直前の確認で止まるため、GHCR のバージョンを削除してから再実行するか、新しいバージョンでやり直す |
 | verify-image | GHCR にイメージがある。「Re-run failed jobs」では container が実行されず、公開済みのイメージをそのまま検証し直す。「Re-run all jobs」は preflight で止まるため、GHCR のバージョンを削除してから実行する |
-| release 以降 | GitHub Release が公開されている可能性がある。下記の手順で全体をやり直す |
+| release 以降 | GitHub Release が公開されているか、Draft が残っている可能性がある。下記の手順で全体をやり直す。Draft も Release と同じく削除する |
 
 同じバージョンを作り直すときは、次の3つを手動で削除してからタグをプッシュし直します。
 
