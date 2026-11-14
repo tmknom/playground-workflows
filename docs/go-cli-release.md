@@ -224,10 +224,8 @@ GHCR にはログインせず、匿名で取得します。
 4. `ghcr.io/tmknom/playground-workflows@sha256:<digest>` を1行で書いた `container-image.txt` を作る
 5. コミットの API に `refs/tags/vX.Y.Z` を渡して得た SHA が `GITHUB_SHA` と一致することを確かめる
 6. Draft を含めて、同じタグの Release がないことを確かめる
-7. 現在の「Latest」の Release のバージョンと比べ、公開するバージョンのほうが大きければ `make_latest` を `true`、小さければ `false` に決める
-8. `gh release create <タグ> --verify-tag --target <GITHUB_SHA> --draft --title <タグ> --generate-notes` で、資産付きの Draft を作る。資産として登録するのは、`SHA256SUMS` に列挙されたアーカイブと SBOM、`SHA256SUMS`、`container-image.txt` だけである。列挙が 12 件でなければ作らない
-9. 作った Draft がちょうど1件であることを確かめ、REST API の `PATCH` で `draft: false` と手順 7 の `make_latest` を同じリクエストで渡して公開する
-10. 手順 7 で `false` に決めた場合は、元の「Latest」の Release に `make_latest: true` を付け直す。最後に、「Latest」が期待する Release であることを確かめる
+7. 公開するバージョンが現在の「Latest」より小さければ、警告を出す
+8. `gh release create <タグ> --verify-tag --target <GITHUB_SHA> --title <タグ> --generate-notes` で公開する。資産として登録するのは、`SHA256SUMS` に列挙されたアーカイブと SBOM、`SHA256SUMS`、`container-image.txt` だけである。列挙が 12 件でなければ公開しない
 
 `SHA256SUMS` との照合だけでは、アーカイブと `SHA256SUMS` が一緒に差し替えられた場合を検出できません。
 署名の検証を加えることで、公開するアーカイブが、このワークフローによって同じコミットとタグで署名されたものであることを確かめます。
@@ -243,36 +241,25 @@ Release はタグの指すコミットに付くため、`--target` ではタグ�
 そのため、公開の直前にタグの参照先を確かめます。
 確かめた直後の付け替えまでは防げないため、post-verify が公開後にもう一度確かめます。
 
-REST API の `make_latest` は、新しく公開した Release では既定で `true` です。
-既定のままだと、大きいバージョンを公開した後に小さいバージョンを公開したとき（失敗した古い実行を後から再実行した場合など）、小さいほうが「Latest」を奪います。
-そのため、現在の「Latest」と `sort -V` で比べ、公開するバージョンが小さければ、公開した後に元の「Latest」を付け直します。
-「Latest」の Release は Lambda リリースと共有するため、比べる相手は Lambda リリースの場合もあります。
+公開した Release は、バージョンの大小にかかわらず「Latest」になります。
+そのため、大きいバージョンを公開した後に小さいバージョンを公開すると（失敗した古い実行を後から再実行した場合など）、小さいほうが「Latest」を奪います。
+動作確認では、`make_latest: false` を渡しても、公開した小さいバージョンが「Latest」になりました。
+防ぐには、公開の後に元の「Latest」へ `make_latest: true` を付け直す必要があります。
 
-`make_latest: false` を渡すだけでは、「Latest」を守れませんでした。
-動作確認では、次の3つの方法のどれでも、公開した小さいバージョンが「Latest」になりました。
+この付け直しは、ワークフローでは行いません。
+古いバージョンを後から公開する場面はまれで、起きても「Latest」を手動で付け直せば済みます。
+一方で自動化すると、CLI のリリースが、関係のない Release（Lambda リリースの場合もある）を書き換えることになります。
+代わりに、公開するバージョンが現在の「Latest」より `sort -V` で小さければ、警告を出します。
+警告のための確認なので、「Latest」を取得できなくても公開は止めません。
 
-- `v0.0.5`：資産を指定した `gh release create` に `--latest=false` を渡す
-- `v0.0.6`：Draft を公開する `PATCH` で、`draft: false` と `make_latest: false` を同じリクエストで渡す
-- `v0.0.6` の公開後：`make_latest: false` だけを `PATCH` で渡し直す
+動作確認で既存より小さい `v0.0.N` を公開すると、削除するまでの間は確認用の Release が「Latest」になります。
+削除すると、「Latest」は元に戻ります。
 
-一方、元の「Latest」（`v1.2.1`）に `make_latest: true` を `PATCH` で渡すと、「Latest」は元に戻りました。
-`make_latest: false` は、公開した Release を自ら「Latest」にしないだけで、ほかの Release を「Latest」に保つ働きはないと考えられます。
-そのため、公開の後に元の「Latest」へ `make_latest: true` を付け直し、`/releases/latest` が期待する Release を返すことを確かめます。
-付け直すまでの数秒は、公開した小さいバージョンが「Latest」になります。
-付け直しの前にジョブが失敗した場合は、手動で付け直します。
-
-比べる相手は「現在の Latest」で、「存在するすべての Release の最大バージョン」ではありません。
-この比較が正しく働くのは、次の前提が成り立つ場合に限ります。
-
-- CLI と Lambda のどちらのリリースも、`vX.Y.Z` 形式の安定版だけを公開する
-- 「Latest」を、最大バージョンより古い Release へ手動で付け替えない
-
-付け替えられていると、その Latest より大きく最大バージョンより小さいバージョンを公開したときに、Latest になってしまいます。
-
-Draft を作ってから公開しますが、その間に人が Draft を確認する工程は設けません。
-Draft は資産をすべて登録してから公開するための手段で、間に挟む確認がないためです。
-Draft の作成や公開の途中で失敗すると、Draft が残る可能性があります。
-Draft があっても `gh release create --draft` が失敗するとは限らないため、作成の前に Draft を含めて同じタグの Release がないことを確かめます。
+Draft を確認してから公開する独立した工程は設けません。
+Draft と公開の間に挟む確認がないためです。
+ただし、資産を指定した `gh release create` は、内部で Draft を作り、資産をアップロードしてから公開します。
+途中で失敗すると、資産の一部だけを持つ Draft が残る可能性があります。
+Draft があっても `gh release create` が失敗するとは限らないため、公開の前に Draft を含めて同じタグの Release がないことを確かめます。
 同じタグの Release は公開済みのものも含めてこの確認で止まるため、既存の Release を書き換えません。
 post-verify も、Release が Draft でないことを確かめます。
 
