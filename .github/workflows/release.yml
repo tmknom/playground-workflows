@@ -18,7 +18,6 @@ defaults:
 # APP_NAME は、次の箇所と同じ値にする。変えるときは、すべてを同時に変える。
 #   - .github/workflows/test-release-build.yml の APP_NAME
 #   - .goreleaser.yaml の project_name
-#   - Dockerfile の COPY と ENTRYPOINT のバイナリのパス
 # イメージの参照は、名前を IMAGE_NAME、公開するタグを IMAGE_TAG、digest 付きの参照を container ジョブの出力 image だけで定め、各ジョブでは組み立てない。
 # env は同じ階層の env を参照できないため、IMAGE_TAG は IMAGE_NAME と VERSION と同じ式で書く。
 # SIGNER_WORKFLOW は、このファイルのパスと一致させる。
@@ -176,8 +175,8 @@ jobs:
       # 更新するときの署名の確認手順は、docs/release.md の「外部 Action とツールの固定」にある
       - name: Set up GoReleaser
         env:
-          GORELEASER_VERSION: 2.19.0
-          GORELEASER_SHA256: ebc3194ad1d1b1787614405285a0039665cd4c5bd3305215a1b201600f90630b
+          GORELEASER_VERSION: 2.20.2
+          GORELEASER_SHA256: f3d24969a7389a46613875711d15a96d8f6ef1553d84c6ace09d69ac1e7d44c0
         run: |
           set -euo pipefail
           archive="${RUNNER_TEMP}/goreleaser_${GORELEASER_VERSION}_Linux_x86_64.tar.gz"
@@ -191,8 +190,8 @@ jobs:
       # GoReleaser が SBOM の生成に呼び出す Syft を入れる
       - name: Set up Syft
         env:
-          SYFT_VERSION: 1.55.0
-          SYFT_SHA256: bb65249542db5fedeeb4d3f9b018b75e7264dbfbbb10486f044581a92f90490d
+          SYFT_VERSION: 1.57.1
+          SYFT_SHA256: bf52519eb57f675d47c07d43213cb6dff6449f3d6d1147ff6701ed91f44eef0c
         run: |
           set -euo pipefail
           archive="${RUNNER_TEMP}/syft_${SYFT_VERSION}_linux_amd64.tar.gz"
@@ -355,13 +354,40 @@ jobs:
     outputs:
       image: ${{ steps.image.outputs.ref }}
     steps:
-      # Dockerfile だけを取得する。リポジトリのコードは実行しない
+      # ベースイメージの参照を読むため、Dependabot が digest を更新する固定用のファイルだけを取得する。リポジトリのコードは実行しない
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          sparse-checkout: /Dockerfile
+          sparse-checkout: /docker/release-base/Dockerfile
           sparse-checkout-cone-mode: false
+
+      # ビルドに使う Dockerfile は、リポジトリのファイルを使わずにここで書き出す。
+      # Dockerfile に RUN や syntax ディレクティブなどが加わると、ビルド中に実行したコマンドの結果や外部から取得したファイルが、
+      # 配布アーカイブのような検証を経ずに署名付きのイメージに入るため、内容をワークフロー定義に固定する。
+      # 固定用のファイルからはイメージの参照の文字列だけを取り出し、ファイル自体は BuildKit に渡さない
+      - name: Prepare Dockerfile
+        env:
+          BASE_IMAGE_FILE: docker/release-base/Dockerfile
+        run: |
+          set -euo pipefail
+          # コメント行と空行を除くと、digest で固定した FROM の 1 行だけであることを確かめる
+          from="$(grep -Ev '^[[:space:]]*(#|$)' "${BASE_IMAGE_FILE}" || true)"
+          pattern='^FROM ([^$[:space:]@]+)@(sha256:[0-9a-f]{64})$'
+          if [[ ! "${from}" =~ ${pattern} ]]; then
+            echo "::error::${BASE_IMAGE_FILE} must contain only one FROM line pinned by digest: ${from}"
+            exit 1
+          fi
+          base_name="${BASH_REMATCH[1]}"
+          base_digest="${BASH_REMATCH[2]}"
+          cat > "${RUNNER_TEMP}/Dockerfile" << EOF
+          FROM ${base_name}@${base_digest}
+          ARG TARGETARCH
+          COPY --chmod=0755 \${TARGETARCH}/${APP_NAME} /usr/local/bin/${APP_NAME}
+          USER nonroot:nonroot
+          ENTRYPOINT ["/usr/local/bin/${APP_NAME}"]
+          EOF
+          cat "${RUNNER_TEMP}/Dockerfile"
 
       - name: Download
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
@@ -435,7 +461,9 @@ jobs:
       # Actions Artifact としてアップロードする。調査のための記録で公開には使わず、受け渡す Artifact を release-assets だけにするよう止める。
       # url の Release は後の release ジョブで公開するため、公開されるまでは参照先がない。
       # created は、イメージの設定の created（BuildKit がビルドの時刻を入れる）と異なる値が並ぶため付けない。
-      # description は機械的に生成できず、base.name と base.digest は Dockerfile の FROM を解析し直すことになるため付けない
+      # description は機械的に生成できないため付けない。
+      # base.name と base.digest は、固定しているのがベースイメージの Image Index の digest で、
+      # プラットフォームごとのイメージの設定に入るラベルの値としては、そのイメージの直接のベースを指さないため付けない
       - name: Build and push
         id: push
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
@@ -443,7 +471,7 @@ jobs:
           DOCKER_BUILD_RECORD_UPLOAD: false
         with:
           context: ${{ runner.temp }}/context
-          file: ${{ github.workspace }}/Dockerfile
+          file: ${{ runner.temp }}/Dockerfile
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ env.IMAGE_TAG }}
@@ -656,7 +684,7 @@ jobs:
             exit 1
           fi
 
-          # 公開した Release は、バージョンの大小にかかわらず Latest になる。
+          # gh release create は make_latest を指定せず、API の既定値 true により、公開した Release はバージョンの大小にかかわらず Latest になる。
           # 古いバージョンを後から公開する場面はまれなため、Latest は自動で付け直さず、警告を出して手動の対応に任せる。
           # 確認は警告のためだけなので、Latest を取得できなくても止めない
           latest="$(gh api "repos/${GITHUB_REPOSITORY}/releases/latest" --jq .tag_name 2> /dev/null || true)"

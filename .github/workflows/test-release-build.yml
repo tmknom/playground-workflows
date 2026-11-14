@@ -35,7 +35,6 @@ defaults:
 # APP_NAME は、次の箇所と同じ値にする。変えるときは、すべてを同時に変える。
 #   - .github/workflows/release.yml の APP_NAME
 #   - .goreleaser.yaml の project_name
-#   - Dockerfile の COPY と ENTRYPOINT のバイナリのパス
 env:
   APP_NAME: playground-workflows
 
@@ -62,8 +61,8 @@ jobs:
       # GoReleaser と Syft は、release.yml の build ジョブと同じバージョンとハッシュで固定してインストールする
       - name: Set up GoReleaser
         env:
-          GORELEASER_VERSION: 2.19.0
-          GORELEASER_SHA256: ebc3194ad1d1b1787614405285a0039665cd4c5bd3305215a1b201600f90630b
+          GORELEASER_VERSION: 2.20.2
+          GORELEASER_SHA256: f3d24969a7389a46613875711d15a96d8f6ef1553d84c6ace09d69ac1e7d44c0
         run: |
           set -euo pipefail
           archive="${RUNNER_TEMP}/goreleaser_${GORELEASER_VERSION}_Linux_x86_64.tar.gz"
@@ -77,8 +76,8 @@ jobs:
       # GoReleaser が SBOM の生成に呼び出す Syft を入れる
       - name: Set up Syft
         env:
-          SYFT_VERSION: 1.55.0
-          SYFT_SHA256: bb65249542db5fedeeb4d3f9b018b75e7264dbfbbb10486f044581a92f90490d
+          SYFT_VERSION: 1.57.1
+          SYFT_SHA256: bf52519eb57f675d47c07d43213cb6dff6449f3d6d1147ff6701ed91f44eef0c
         run: |
           set -euo pipefail
           archive="${RUNNER_TEMP}/syft_${SYFT_VERSION}_linux_amd64.tar.gz"
