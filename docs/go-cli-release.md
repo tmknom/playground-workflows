@@ -227,6 +227,7 @@ GHCR にはログインせず、匿名で取得します。
 7. 現在の「Latest」の Release のバージョンと比べ、公開するバージョンのほうが大きければ `make_latest` を `true`、小さければ `false` に決める
 8. `gh release create <タグ> --verify-tag --target <GITHUB_SHA> --draft --title <タグ> --generate-notes` で、資産付きの Draft を作る。資産として登録するのは、`SHA256SUMS` に列挙されたアーカイブと SBOM、`SHA256SUMS`、`container-image.txt` だけである。列挙が 12 件でなければ作らない
 9. 作った Draft がちょうど1件であることを確かめ、REST API の `PATCH` で `draft: false` と手順 7 の `make_latest` を同じリクエストで渡して公開する
+10. 手順 7 で `false` に決めた場合は、元の「Latest」の Release に `make_latest: true` を付け直す。最後に、「Latest」が期待する Release であることを確かめる
 
 `SHA256SUMS` との照合だけでは、アーカイブと `SHA256SUMS` が一緒に差し替えられた場合を検出できません。
 署名の検証を加えることで、公開するアーカイブが、このワークフローによって同じコミットとタグで署名されたものであることを確かめます。
@@ -244,14 +245,21 @@ Release はタグの指すコミットに付くため、`--target` ではタグ�
 
 REST API の `make_latest` は、新しく公開した Release では既定で `true` です。
 既定のままだと、大きいバージョンを公開した後に小さいバージョンを公開したとき（失敗した古い実行を後から再実行した場合など）、小さいほうが「Latest」を奪います。
-そのため、現在の「Latest」と `sort -V` で比べ、公開するバージョンが小さければ `make_latest` を `false` にします。
-動作確認で既存より小さい `v0.0.N` を公開しても、「Latest」は変わりません。
+そのため、現在の「Latest」と `sort -V` で比べ、公開するバージョンが小さければ、公開した後に元の「Latest」を付け直します。
 「Latest」の Release は Lambda リリースと共有するため、比べる相手は Lambda リリースの場合もあります。
 
-`make_latest` は、`gh release create` のフラグではなく、公開のリクエストに直接渡します。
-`v0.0.5` の動作確認では、資産を指定した `gh release create` に `--latest=false` を渡しても、公開した Release が「Latest」になりました。
-`gh` は資産を指定すると Draft を作ってから公開するため、`--latest=false` が公開のリクエストに反映されなかった可能性があります。
-`gh` の内部の手順に依存しないよう、Draft の作成と公開を分け、公開のリクエストで `draft` と `make_latest` を明示します。
+`make_latest: false` を渡すだけでは、「Latest」を守れませんでした。
+動作確認では、次の3つの方法のどれでも、公開した小さいバージョンが「Latest」になりました。
+
+- `v0.0.5`：資産を指定した `gh release create` に `--latest=false` を渡す
+- `v0.0.6`：Draft を公開する `PATCH` で、`draft: false` と `make_latest: false` を同じリクエストで渡す
+- `v0.0.6` の公開後：`make_latest: false` だけを `PATCH` で渡し直す
+
+一方、元の「Latest」（`v1.2.1`）に `make_latest: true` を `PATCH` で渡すと、「Latest」は元に戻りました。
+`make_latest: false` は、公開した Release を自ら「Latest」にしないだけで、ほかの Release を「Latest」に保つ働きはないと考えられます。
+そのため、公開の後に元の「Latest」へ `make_latest: true` を付け直し、`/releases/latest` が期待する Release を返すことを確かめます。
+付け直すまでの数秒は、公開した小さいバージョンが「Latest」になります。
+付け直しの前にジョブが失敗した場合は、手動で付け直します。
 
 比べる相手は「現在の Latest」で、「存在するすべての Release の最大バージョン」ではありません。
 この比較が正しく働くのは、次の前提が成り立つ場合に限ります。

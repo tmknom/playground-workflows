@@ -582,7 +582,10 @@ jobs:
           # API の既定では公開した Release が Latest になり、後から古いバージョンを公開すると Latest を奪う。
           # 既存の Latest のほうが大きいバージョンなら、Latest にしない
           make_latest=true
-          if latest="$(gh api "repos/${GITHUB_REPOSITORY}/releases/latest" --jq .tag_name 2> "${RUNNER_TEMP}/latest.err")"; then
+          latest=""
+          latest_id=""
+          if latest_info="$(gh api "repos/${GITHUB_REPOSITORY}/releases/latest" --jq '"\(.tag_name) \(.id)"' 2> "${RUNNER_TEMP}/latest.err")"; then
+            read -r latest latest_id <<< "${latest_info}"
             if [[ "$(printf '%s\n' "${latest}" "${VERSION}" | sort -V | tail -n 1)" != "${VERSION}" ]]; then
               make_latest=false
             fi
@@ -592,9 +595,7 @@ jobs:
           fi
           echo "Latest release: ${latest:-none}, publishing ${VERSION} with make_latest=${make_latest}"
 
-          # 資産を指定した gh release create は Draft を作ってから公開するが、--latest=false を渡しても公開した Release が Latest になった。
-          # gh が公開のリクエストをどう組み立てるかに依存しないよう、資産付きの Draft を作った後、
-          # draft と make_latest を同じリクエストで明示して公開する
+          # 資産をすべて登録した Draft を作ってから公開する
           gh release create "${VERSION}" --repo "${GITHUB_REPOSITORY}" --verify-tag --target "${GITHUB_SHA}" \
             --draft --title "${VERSION}" --generate-notes "${files[@]}" SHA256SUMS container-image.txt
           id="$(gh api --paginate "repos/${GITHUB_REPOSITORY}/releases" --jq ".[] | select(.tag_name == \"${VERSION}\" and .draft) | .id")"
@@ -604,6 +605,21 @@ jobs:
           fi
           gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/${id}" \
             -F draft=false -f make_latest="${make_latest}" --jq .html_url
+
+          # 動作確認では、公開のリクエストに make_latest=false を渡しても、公開した Release が Latest になった。
+          # make_latest=false は既存の Latest を守らないため、元の Latest に make_latest=true を付け直して戻す。
+          # 戻すまでの数秒は、公開した Release が Latest になる
+          expected_latest="${VERSION}"
+          if [[ "${make_latest}" == "false" ]]; then
+            gh api --method PATCH "repos/${GITHUB_REPOSITORY}/releases/${latest_id}" -f make_latest=true --jq .tag_name > /dev/null
+            expected_latest="${latest}"
+          fi
+          got="$(gh api "repos/${GITHUB_REPOSITORY}/releases/latest" --jq .tag_name)"
+          if [[ "${got}" != "${expected_latest}" ]]; then
+            echo "::error::The latest release is ${got}, but ${expected_latest} is expected"
+            exit 1
+          fi
+          echo "Latest release after publishing: ${got}"
 
   # 公開した GitHub Release と GHCR のイメージを取得し直し、正規の成果物と照合する。このジョブの成功をもってワークフローの成功とする。
   # 失敗した時点で Release は公開済みだが、自動では取り消さない
