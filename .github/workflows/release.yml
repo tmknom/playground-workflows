@@ -30,7 +30,7 @@ env:
   VERSION: ${{ github.ref_name }}
   IMAGE_NAME: ghcr.io/${{ github.repository }}
   IMAGE_TAG: ghcr.io/${{ github.repository }}:${{ github.ref_name }}
-  SIGNER_WORKFLOW: ${{ github.repository }}/.github/workflows/release-go-cli.yml
+  SIGNER_WORKFLOW: ${{ github.repository }}/.github/workflows/release.yml
   LICENSE_SPDX_ID: Apache-2.0
 
 jobs:
