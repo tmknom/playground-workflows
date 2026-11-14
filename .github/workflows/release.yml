@@ -365,9 +365,11 @@ jobs:
       # ビルドに使う Dockerfile は、リポジトリのファイルを使わずにここで書き出す。
       # Dockerfile に RUN や syntax ディレクティブなどが加わると、ビルド中に実行したコマンドの結果や外部から取得したファイルが、
       # 配布アーカイブのような検証を経ずに署名付きのイメージに入るため、内容をワークフロー定義に固定する。
-      # 固定用のファイルからはイメージの参照の文字列だけを取り出し、ファイル自体は BuildKit に渡さない
+      # ベースイメージも署名付きのイメージの中身を決めるため、名前は BASE_IMAGE としてワークフロー定義に固定し、固定用のファイルからは digest だけを取り出す。
+      # 別のベースイメージへ移るときは、BASE_IMAGE と固定用のファイルを同時に変える。固定用のファイル自体は BuildKit に渡さない
       - name: Prepare Dockerfile
         env:
+          BASE_IMAGE: gcr.io/distroless/static-debian13:nonroot
           BASE_IMAGE_FILE: docker/release-base/Dockerfile
         run: |
           set -euo pipefail
@@ -380,8 +382,12 @@ jobs:
           fi
           base_name="${BASH_REMATCH[1]}"
           base_digest="${BASH_REMATCH[2]}"
+          if [[ "${base_name}" != "${BASE_IMAGE}" ]]; then
+            echo "::error::${BASE_IMAGE_FILE} uses ${base_name}, but ${BASE_IMAGE} is expected"
+            exit 1
+          fi
           cat > "${RUNNER_TEMP}/Dockerfile" << EOF
-          FROM ${base_name}@${base_digest}
+          FROM ${BASE_IMAGE}@${base_digest}
           ARG TARGETARCH
           COPY --chmod=0755 \${TARGETARCH}/${APP_NAME} /usr/local/bin/${APP_NAME}
           USER nonroot:nonroot
