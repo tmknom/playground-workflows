@@ -298,8 +298,9 @@ Go のビルドとパッケージングは GoReleaser OSS に任せ、担当範�
 | 来歴証明 | GitHub Artifact Attestations（GoReleaser の署名機能は使わない） |
 | GitHub Release の公開とリリースノート | GitHub CLI（GoReleaser の公開機能と changelog は使わない） |
 
-GoReleaser は runner の環境変数を引き継ぐため、ビルドに関わる環境変数は `.goreleaser.yaml` で既定値でも明示し、ビルドが runner の環境に左右されないようにします。
+GoReleaser は runner の環境変数を引き継ぐため、ビルドに関わる環境変数は `.goreleaser.yaml` で既定値でも明示し、その値が runner の設定に左右されないようにします。
 値と理由は `.goreleaser.yaml` のコメントに書いています。
+ツールチェーンや依存モジュールなど、環境変数以外のビルドの入力は、それぞれ別の方法で固定します（Go のバージョンは後述、依存モジュールは `go.sum`）。
 
 SBOM には生成時刻と実行ごとに変わる文書の識別子が入るため、同じ入力から生成し直しても同じバイト列になりません。
 SBOM の記載内容は、アーカイブ内のバイナリに埋め込まれたビルド情報から Syft が読み取ったもので、正確さはリリースの工程で確かめません。
@@ -319,7 +320,7 @@ Go のバージョンは `go.mod` の `go` 行で固定し、`actions/setup-go` 
 イメージを定義する Dockerfile は、container ジョブがワークフロー定義の中で書き出します。
 
 - **Dockerfile をワークフロー定義に固定する**：リポジトリに置いた Dockerfile をビルドに使わない。Dockerfile はビルドの定義で、`RUN`、`syntax` ディレクティブ（BuildKit が指定されたフロントエンドのイメージを取得し、ビルドに使う）、URL や Git リポジトリを指定した `ADD`、イメージを参照する `COPY --from` を加えると、ビルド中に実行したコマンドの結果や外部から取得したファイルが、配布アーカイブのような検証を経ずに署名付きのイメージに入る。container ジョブは公開と署名の権限を持つため、Dockerfile の内容を、もともと `main` の変更のレビューに依存しているワークフロー定義に置く。命令を検査する仕組みを持たずに済み、書き出す Dockerfile は `RUN` を使わないため、QEMU も要らない
-- **ベースイメージ**：Distroless static の nonroot。非 cgo の Go バイナリが必要とすることの多い CA 証明書とタイムゾーン情報を含む。Image Index の digest で固定し、Dependabot で更新する。Dependabot が読めるよう、固定する値は `docker/release-base/Dockerfile` の `FROM` に置き、`docker` の `directories` に `/docker/release-base` を含める。このファイルはビルドに使わず、container ジョブは、コメント行と空行を除いて digest で固定した `FROM` の 1 行だけであることを確かめてから、イメージの参照の文字列だけを取り出す
+- **ベースイメージ**：Distroless static の nonroot。非 cgo の Go バイナリが必要とすることの多い CA 証明書とタイムゾーン情報を含む。Image Index の digest で固定し、Dependabot で更新する。Dependabot が読めるよう、固定する値は `docker/release-base/Dockerfile` の `FROM` に置き、`docker` の `directories` に `/docker/release-base` を含める。このファイルはビルドに使わず、container ジョブは、コメント行と空行を除いて digest で固定した `FROM` の 1 行だけであり、イメージ名がワークフロー定義に書いた名前と一致することを確かめてから、digest だけを取り出す。名前もワークフロー定義に固定するのは、命令と同じく、別のベースイメージに変えると検証を経ない内容が署名付きのイメージに入るためである。別のベースイメージへ移るときは、ワークフロー定義の名前と固定用のファイルを同時に変える
 - **Go を再コンパイルしない**：格納するのは配布アーカイブから取り出したバイナリである。イメージ内のバイナリは配布物とバイト単位で一致する
 - **ビルドコンテキスト**：Linux バイナリ 2 つだけを置いた専用ディレクトリを渡す。ソースコードは Buildx に渡らない。Buildx の既定の Git コンテキストは、先行ステップで用意したファイルを反映しないため使わない
 - **タグ**：`vX.Y.Z` だけを付け、`latest` は付けない。イメージの識別と検証には digest を使う
