@@ -48,7 +48,7 @@ SLSA の Build Level を名乗ることは目的にしません。
 `v0` のような形式外のタグやプレリリースのタグでは、ワークフローが起動しません。
 
 - **バージョンの正本**：Git タグである。ビルドはタグが指すコミット SHA（`GITHUB_SHA`）から行い、実行中に `main` の最新状態を解決し直さない
-- **起動者の制限**：すべてのジョブの `if` で `github.actor_id == github.repository_owner_id` と `github.triggering_actor == github.repository_owner` の両方を要求する。`github.actor` は再実行しても最初の実行者のままで、再実行はその権限で動くため、再実行した者を `github.triggering_actor` で確かめる。`triggering_actor` には ID がないため、ユーザー名で比べる。最初のジョブだけに置かないのは、「Re-run failed jobs」では成功済みのジョブが実行し直されず、その `if` も評価し直されないためである。必須なのは権限を持つジョブ（attest、container、release）で、読み取り専用のジョブにも置くのは、ジョブごとに要否を判断せずに済む規則にするためである
+- **起動者の制限**：すべてのジョブの `if` で `github.actor_id == github.repository_owner_id` と `github.triggering_actor == github.repository_owner` の両方を要求する。`github.actor` は再実行しても最初の実行者のままで、再実行はその権限で動くため、再実行した者を `github.triggering_actor` で確かめる。`triggering_actor` には ID がないため、ユーザー名で比べる。最初のジョブだけに置かないのは、「Re-run failed jobs」では成功済みのジョブが実行し直されず、その `if` も評価し直されないためである。必須なのは書き込みの権限を持つジョブ（attest、container、release）で、読み取り専用のジョブにも置くのは、ジョブごとに要否を判断せずに済む規則にするためである
 - **タグの移動**：公開物を残したまま、タグを別のコミットへ移動しない。ソースを直す場合は新しいバージョンを使うか、[失敗時のやり直し](#失敗時のやり直し) の手順で公開物を削除してから作り直す
 - **正式リリースの完了点**：GitHub Release の公開である。タグや GHCR のイメージが存在しても、GitHub Release が公開されるまではリリース済みと扱わない
 - **ワークフローの成功**：post-verify までのすべてのジョブが成功した状態である。正式リリースの完了点とは別に判定するため、post-verify が失敗した場合は「公開済みだが、公開後の照合に失敗した」状態になる
@@ -280,7 +280,7 @@ GitHub Release のアセットは、次の 14 件です。
 digest だけを渡して各ジョブがイメージ名と連結すると、連結の誤りで `container-image.txt` が別のイメージを指しても、公開するまで検出できないためです。
 digest 付きの参照は container が一度だけ作り、verify-image、release、post-verify は同じ値を使います。
 
-`actions/download-artifact` の転送単位の digest 検査とは別に、各ジョブで `sha256sum -c SHA256SUMS` を実行します。
+`actions/download-artifact` の転送単位の digest 検査とは別に、GitHub Release の公開より前に成果物を受け取るジョブ（attest、container、verify-image、release）で `sha256sum -c SHA256SUMS` を実行します。
 転送の検査は Artifact の破損を検出するものであり、公開の停止条件はファイル単位の照合と署名の検証に置くためです。
 
 ## ビルドの設定

@@ -119,7 +119,7 @@ jobs:
           cache: false
 
       # 配布するバイナリと同じ条件でテストし、依存モジュールの取得元も揃えるよう、.goreleaser.yaml の builds の env と同じ値にする。
-      # GOFLAGS だけは、GoReleaser の flags に当たる -mod=readonly をここに書く
+      # GOFLAGS には、GoReleaser の flags のうち -mod=readonly だけを書き、実行ファイルに記録するパスを変える -trimpath は加えない
       - name: Test
         env:
           CGO_ENABLED: "0"
