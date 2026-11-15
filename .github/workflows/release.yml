@@ -15,21 +15,14 @@ defaults:
   run:
     shell: bash
 
-# APP_NAME は、次の箇所と同じ値にする。変えるときは、すべてを同時に変える。
-#   - .github/workflows/test-release-build.yml の APP_NAME
+# APP_NAME は、次の箇所と同じ値にする。変えるときは同時に変える。
 #   - .goreleaser.yaml の project_name
-# イメージの参照は、名前を IMAGE_NAME、公開するタグを IMAGE_TAG、digest 付きの参照を container ジョブの出力 image だけで定め、各ジョブでは組み立てない。
-# env は同じ階層の env を参照できないため、IMAGE_TAG は IMAGE_NAME と VERSION と同じ式で書く。
-# SIGNER_WORKFLOW は、このファイルのパスと一致させる。
-# LICENSE_SPDX_ID は、LICENSE ファイルのライセンスを SPDX 識別子で書いたもので、LICENSE を変えるときは同時に変える。
-# GitHub の API が推定する識別子は推定に失敗しうるため使わない
 env:
   APP_NAME: playground-workflows
   VERSION: ${{ github.ref_name }}
   IMAGE_NAME: ghcr.io/${{ github.repository }}
   IMAGE_TAG: ghcr.io/${{ github.repository }}:${{ github.ref_name }}
   SIGNER_WORKFLOW: ${{ github.repository }}/.github/workflows/release.yml
-  LICENSE_SPDX_ID: Apache-2.0
 
 jobs:
   # リリースできない状態のタグでは、テストやビルドの前に止める
@@ -147,8 +140,6 @@ jobs:
           go vet ./...
           go test -count=1 ./...
 
-  # test-release-build.yml が、このジョブと同じビルドと確認をプルリクエストの段階でテストする。
-  # GoReleaser と Syft のバージョンとハッシュ、Verify archives の確認を変えるときは、test-release-build.yml も同時に変える
   build:
     needs: [test]
     if: ${{ github.actor_id == github.repository_owner_id && github.triggering_actor == github.repository_owner }}
@@ -475,6 +466,7 @@ jobs:
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         env:
           DOCKER_BUILD_RECORD_UPLOAD: false
+          LICENSE_SPDX_ID: Apache-2.0
         with:
           context: ${{ runner.temp }}/context
           file: ${{ runner.temp }}/Dockerfile
