@@ -359,7 +359,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          sparse-checkout: /docker/release-base/Dockerfile
+          sparse-checkout: /Dockerfile
           sparse-checkout-cone-mode: false
 
       # ビルドに使う Dockerfile は、リポジトリのファイルを使わずにここで書き出す。
@@ -370,7 +370,7 @@ jobs:
       - name: Prepare Dockerfile
         env:
           BASE_IMAGE: gcr.io/distroless/static-debian13:nonroot
-          BASE_IMAGE_FILE: docker/release-base/Dockerfile
+          BASE_IMAGE_FILE: Dockerfile
         run: |
           set -euo pipefail
           # コメント行と空行を除くと、digest で固定した FROM の 1 行だけであることを確かめる
