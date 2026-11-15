@@ -1,18 +1,20 @@
 # Go CLI のリリースワークフロー設計
 
-このリポジトリの Go CLI（`playground-workflows`）を、Git タグのプッシュを起点に GitHub Releases と GitHub Container Registry（GHCR）へ公開するワークフローの設計です。
+Go CLI を、Git タグのプッシュを起点に GitHub Releases と GitHub Container Registry（GHCR）へ公開するワークフローの設計です。
 対象はワークフロー `.github/workflows/release.yml` の完成形で、各ジョブの責務、権限、成果物の受け渡し、検証の条件、失敗時の扱いを定めます。
+
+以下では、リポジトリを `<owner>/<repo>`、CLI の名前を `<app>` と書きます。
+`<app>` は、`release.yml` の `APP_NAME` と `.goreleaser.yaml` の `project_name` に書いた値です。
 
 ## 対象と前提
 
 | 項目 | 方針 |
 |---|---|
-| リポジトリ | GitHub Free の Public リポジトリ。リリースワークフローの動作を検証するためのものである |
-| 設計の位置づけ | 個人開発の Go CLI の本番リリースに適用することを前提とする。検証用のリポジトリであることを、品質の確認を省く理由にしない |
+| リポジトリ | 個人アカウントが所有する Public リポジトリ。起動者の制限（[リリースの起点とバージョン](#リリースの起点とバージョン)）は、所有者がユーザーであることを前提とする |
 | 実行基盤 | GitHub-hosted runners |
-| 配布する CLI | リポジトリ直下の `main.go`。バイナリ名は `playground-workflows` |
+| 配布する CLI | リポジトリ直下の main パッケージ。バイナリ名は `<app>` |
 | 配布物 | Linux / macOS / Windows × amd64 / arm64 の 6 種類の配布アーカイブと、アーカイブごとの SBOM（SPDX JSON） |
-| コンテナ | `linux/amd64`、`linux/arm64` のマルチアーキテクチャイメージ `ghcr.io/tmknom/playground-workflows` |
+| コンテナ | `linux/amd64`、`linux/arm64` のマルチアーキテクチャイメージ `ghcr.io/<owner>/<repo>` |
 | リリースの起点 | ローカルで作成してプッシュした `vX.Y.Z` 形式の Git タグ |
 | 認証 | `GITHUB_TOKEN` と GitHub Actions の OIDC だけを使う。長期保管する秘密鍵や GitHub App は導入しない |
 | cgo | `CGO_ENABLED=0` で固定する |
@@ -36,7 +38,7 @@ deb / rpm / apk の OS パッケージと Homebrew Formula は、現時点では
 
 Linux 以外の OS でのバイナリの実行も、リリースの工程では確かめません。
 `CGO_ENABLED=0` でクロスコンパイルするため、OS ごとの挙動の違いはソースコードの性質であり、リリースの工程が持ち込むものではないからです。
-OS ごとの確認はプルリクエストで実行する通常 CI の役割としますが、この CI は現時点ではありません（[将来の拡張](#将来の拡張)）。
+OS ごとの確認は、プルリクエストで実行する通常 CI の役割とします（[将来の拡張](#将来の拡張)）。
 
 SLSA の Build Level を名乗ることは目的にしません。
 
@@ -136,7 +138,7 @@ preflight は「Re-run all jobs」では実行し直されますが、「Re-run 
 
 コード変更に対する包括的な品質の検証は、プルリクエストで動く通常 CI の役割です。
 このジョブは、リリースするコミットそのものについて、重要な品質条件を通常 CI とは独立に確かめ直します。
-タグはプルリクエストで検証したコミットとは別のコミットに付けられ得るため、通常 CI を整備した後もこのジョブを残します。
+タグはプルリクエストで検証したコミットとは別のコミットに付けられ得るため、通常 CI があってもこのジョブを残します。
 
 ### build
 
@@ -220,7 +222,7 @@ Release はタグの指すコミットに付くため、タグが付け替えら
 
 `gh release create` は `make_latest` を指定しないため、REST API の既定値 `true` により、公開した Release はバージョンの大小にかかわらず「Latest」になります。
 そのため、大きいバージョンを公開した後に小さいバージョンを公開すると（失敗した古い実行を後から再実行した場合など）、小さいほうが「Latest」を奪います。
-REST API は `make_latest` に `true`、`false`、`legacy` を定義していますが、このリポジトリでの動作確認では、`make_latest: false` を渡しても、公開した小さいバージョンが「Latest」になりました。
+REST API は `make_latest` に `true`、`false`、`legacy` を定義していますが、動作確認では、`make_latest: false` を渡しても、公開した小さいバージョンが「Latest」になりました。
 `legacy` は確かめていません。
 防ぐには、公開の後に元の「Latest」へ `make_latest: true` を付け直す必要があります。
 
@@ -229,9 +231,6 @@ REST API は `make_latest` に `true`、`false`、`legacy` を定義していま
 一方で自動化すると、CLI のリリースが、その実行で公開していない Release を書き換えることになります。
 代わりに、公開するバージョンが現在の「Latest」より `sort -V` で小さければ、警告を出します。
 警告のための確認なので、「Latest」を取得できなくても公開は止めません。
-
-動作確認で既存より小さい `v0.0.N` を公開すると、削除するまでの間は確認用の Release が「Latest」になります。
-削除すると、「Latest」は元に戻ります。
 
 Draft を確認してから公開する独立した工程は設けません。
 公開するファイルと公開の前提は公開の前に検証を終えており、アップロードされたアセットの照合は post-verify が公開後に行うためです。
@@ -262,14 +261,14 @@ GitHub Release のアセットは、次の 14 件です。
 
 | アセット | 内容 | 生成するジョブ |
 |---|---|---|
-| `playground-workflows_<バージョン>_<os>_<arch>.tar.gz` | Linux、macOS 向けの配布アーカイブ。4 件 | build |
-| `playground-workflows_<バージョン>_windows_<arch>.zip` | Windows 向けの配布アーカイブ。2 件 | build |
+| `<app>_<バージョン>_<os>_<arch>.tar.gz` | Linux、macOS 向けの配布アーカイブ。4 件 | build |
+| `<app>_<バージョン>_windows_<arch>.zip` | Windows 向けの配布アーカイブ。2 件 | build |
 | `<アーカイブ名>.sbom.json` | 配布アーカイブごとの SBOM（SPDX JSON）。6 件 | build |
 | `SHA256SUMS` | 配布アーカイブ 6 件と SBOM 6 件の SHA-256 | build |
 | `container-image.txt` | GHCR のイメージの digest 付きの参照。1行 | release |
 
 `<バージョン>` は先頭の `v` を除いた形です。
-各アーカイブは直下に `playground-workflows`（Windows では `playground-workflows.exe`）と `LICENSE` を含みます。
+各アーカイブは直下に `<app>`（Windows では `<app>.exe`）と `LICENSE` を含みます。
 
 ジョブ間で受け渡す Actions Artifact は `release-assets` の1つだけで、中身は配布アーカイブ 6 件、SBOM 6 件、`SHA256SUMS` です。
 コンテナに格納する Linux バイナリは、container が Linux 向けアーカイブから取り出します。
@@ -324,7 +323,7 @@ Go のバージョンは `go.mod` の `go` 行で固定し、`actions/setup-go` 
 - **Go を再コンパイルしない**：格納するのは配布アーカイブから取り出したバイナリである。イメージ内のバイナリは配布物とバイト単位で一致する
 - **ビルドコンテキスト**：Linux バイナリ 2 つだけを置いた専用ディレクトリを渡す。ソースコードは Buildx に渡らない。Buildx の既定の Git コンテキストは、先行ステップで用意したファイルを反映しないため使わない
 - **タグ**：`vX.Y.Z` だけを付け、`latest` は付けない。イメージの識別と検証には digest を使う
-- **OCI ラベル**：値はワークフローの `env` と `github` コンテキストから取り、ライセンスの識別子以外は手で書かない。ラベルはプラットフォームごとのイメージの設定に入り、Image Index には入らない。GHCR のパッケージページは、マルチアーキテクチャのイメージでは Image Index の注釈を読むことがあるため、ラベルの値がパッケージページに表示されるとは限らない
+- **OCI ラベル**：値はワークフローの `env` と `github` コンテキスト、GitHub がリポジトリのライセンスファイルから判定した SPDX 識別子から取り、手で書かない。ライセンスの判定は既定ブランチが対象である。判定できなければ、ライセンスのラベルは付けずに警告を出す。OCI の仕様ではラベルの値は SPDX License Expression で、判定できないときの `spdx_id`（`null`、`NOASSERTION`、`NONE`）はどれもこれに当たらないため、値で未知を表さず、ライセンスについて何も主張しない形にする。ラベルはプラットフォームごとのイメージの設定に入り、Image Index には入らない。GHCR のパッケージページは、マルチアーキテクチャのイメージでは Image Index の注釈を読むことがあるため、ラベルの値がパッケージページに表示されるとは限らない
 
 GHCR へは `docker/login-action` に `GITHUB_TOKEN` を渡してログインします。
 初回の公開直後のパッケージは非公開のため、パッケージの設定で公開範囲を Public に変え、リポジトリに紐づいていることを一度だけ確認します。
@@ -398,11 +397,11 @@ preflight は同じバージョンの Release と GHCR のタグがあると止�
 ## Immutable Release を採用しない運用
 
 GitHub の Immutable Releases は、現時点では有効にしません。
-有効にすると、公開済みの Release のアセットと関連する Git タグを変更、削除できなくなり、同じバージョンでリリース工程を繰り返し試すことができなくなるためです。
+有効にすると、公開済みの Release のアセットと関連する Git タグを変更、削除できなくなり、[失敗時のやり直し](#失敗時のやり直し) の手順で同じバージョンを作り直せなくなるためです。
 
 この運用は、次の前提に立ちます。
 
-- Git タグ、GitHub Release、GHCR のパッケージバージョンは、検証のために削除してよい
+- Git タグ、GitHub Release、GHCR のパッケージバージョンは、やり直しのために削除してよい
 - 不整合な状態になった場合は、すべて削除して初めからやり直してよい
 - Tag Rulesets によるタグの更新、削除の制限も導入しない
 - Release Attestation が生成されないため、`gh release verify` と `gh release verify-asset` は使わない。公開後のアセットは post-verify が取得し直して照合する
@@ -418,21 +417,20 @@ GitHub の Immutable Releases は、現時点では有効にしません。
 
 利用者は `gh attestation verify` で、配布物の生成元を確かめられます。
 Attestation は、検証する側が期待値を知っていて初めて意味を持つため、期待値を次のように定めます。
-利用者向けの手順は、[playground-workflows の Go CLI の節](../README.md#go-cli) に載せています。
 
 | 期待値 | 値 |
 |---|---|
-| リポジトリ | `tmknom/playground-workflows` |
-| 署名したワークフロー | `tmknom/playground-workflows/.github/workflows/release.yml` |
+| リポジトリ | `<owner>/<repo>` |
+| 署名したワークフロー | `<owner>/<repo>/.github/workflows/release.yml` |
 | ソースの ref | `refs/tags/vX.Y.Z` |
 | 実行基盤 | GitHub-hosted runners（`--deny-self-hosted-runners`） |
 
 配布アーカイブは次のように検証します。
 
 ```bash
-gh attestation verify playground-workflows_X.Y.Z_linux_amd64.tar.gz \
-  --repo tmknom/playground-workflows \
-  --signer-workflow tmknom/playground-workflows/.github/workflows/release.yml \
+gh attestation verify <app>_X.Y.Z_linux_amd64.tar.gz \
+  --repo <owner>/<repo> \
+  --signer-workflow <owner>/<repo>/.github/workflows/release.yml \
   --source-ref refs/tags/vX.Y.Z \
   --deny-self-hosted-runners
 ```
@@ -443,8 +441,8 @@ SBOM も、ファイル名を `<アーカイブ名>.sbom.json` に変えた同�
 
 ```bash
 gh attestation verify "oci://$(cat container-image.txt)" \
-  --repo tmknom/playground-workflows \
-  --signer-workflow tmknom/playground-workflows/.github/workflows/release.yml \
+  --repo <owner>/<repo> \
+  --signer-workflow <owner>/<repo>/.github/workflows/release.yml \
   --source-ref refs/tags/vX.Y.Z \
   --deny-self-hosted-runners
 ```
@@ -517,8 +515,8 @@ Syft はタグではなく `main` ブランチのワークフローで署名し�
 - **実行中のタグの付け替え**：Tag Rulesets でタグを保護していないため、実行中にタグを付け替えられる可能性がある。release が公開の直前に、post-verify が公開後にタグの参照先を確認するが、確認の直後の付け替えは防げない
 - **存在確認の誤判定**：エラーメッセージの文言で判定するため、`gh` や Docker Buildx の文言が変わると、存在しないバージョンでも preflight や container が止まる
 - **公開物の書き換え**：Immutable Release を採用していないため、公開後のアセットとタグは書き換えから保護されていない
-- **作り直す前のビルドの Attestation**：利用者による検証はタグの名前を固定し、コミットを固定しない。[失敗時のやり直し](#失敗時のやり直し) で同じバージョンを作り直しても、前の実行が付けた Attestation は残るため、前のビルドのアーカイブやイメージも利用者の検証を通る。[playground-workflows の What is not guaranteed の節](../README.md#what-is-not-guaranteed) に書いている
-- **Linux 以外の OS での実行**：macOS と Windows のバイナリは、どの工程でも実行していない。通常 CI を用意するまでは、OS 固有の不具合を公開前に検出できない
+- **作り直す前のビルドの Attestation**：利用者による検証はタグの名前を固定し、コミットを固定しない。[失敗時のやり直し](#失敗時のやり直し) で同じバージョンを作り直しても、前の実行が付けた Attestation は残るため、前のビルドのアーカイブやイメージも利用者の検証を通る
+- **Linux 以外の OS での実行**：macOS と Windows のバイナリは、リリースのどの工程でも実行していない。通常 CI が OS ごとに確かめていなければ、OS 固有の不具合を公開前に検出できない
 - **待機中の実行の取り消し**：`concurrency` の `queue` が `single` のため、リリースの実行中に2つ以上の実行が待機に入ると、先に待機していた実行が取り消される。取り消しは実行の一覧に残るため、気付いた時点で再実行する
 
 ## 将来の拡張
@@ -530,9 +528,9 @@ Syft はタグではなく `main` ブランチのワークフローで署名し�
 | OS matrix の通常 CI | OS 固有の処理がコードに入ったとき | プルリクエストで、Linux / macOS / Windows の runner で `go test` を実行する |
 | SBOM Attestation | `gh attestation verify` だけで、SBOM がどのアーカイブを記述しているかまで確かめたいとき | `actions/attest` の `sbom-path` で、アーカイブの digest を subject、SBOM を predicate とする Attestation を付ける。1回の呼び出しで渡せる SBOM は1つのため、アーカイブごとに呼び出す。現在は、SBOM 自体の来歴と、SBOM に記録したアーカイブの SHA-256 で対応を確かめる |
 | コンテナイメージの SBOM | 提供を求められたとき | 格納するバイナリは配布アーカイブと同じため、アーカイブの SBOM で代えられないかを先に判断する |
-| `govulncheck` | 外部のモジュールへの依存が増えたとき | 通常 CI と定期実行で既知の脆弱性を検出し、結果からリスクを評価する。リリースワークフローには加えない。脆弱性を減らすリリースまで止めないよう、検出の有無をリリースの必須条件にしない |
+| `govulncheck` | 外部のモジュールに依存しているとき | 通常 CI と定期実行で既知の脆弱性を検出し、結果からリスクを評価する。リリースワークフローには加えない。脆弱性を減らすリリースまで止めないよう、検出の有無をリリースの必須条件にしない |
 | 再ビルドによる再現性の確認 | Attestation と実行確認に加えて必要と判断したとき | 別の runner で再ビルドし、正規の `SHA256SUMS` のアーカイブの行で照合する。SBOM は生成のたびに変わるため照合から外す。アーカイブ内のファイルの時刻、所有者、権限の固定が必要になる可能性がある |
-| Immutable Release | 削除を伴う試行が不要になったとき | Immutable Releases と Tag Rulesets を有効にし、post-verify と利用者向けの手順に `gh release verify` を加える |
+| Immutable Release | 同じバージョンの作り直しが不要になったとき | Immutable Releases と Tag Rulesets を有効にし、post-verify と利用者向けの手順に `gh release verify` を加える |
 | deb / rpm / apk | 配布を求められたとき | GoReleaser の `nfpms` を第一候補とし、build が生成したバイナリを再コンパイルせずに格納する |
 | Homebrew Formula | 配布を求められたとき | 別リポジトリへの書き込み権限と認証情報の設計が必要になる |
 
