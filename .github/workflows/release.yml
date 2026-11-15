@@ -454,6 +454,27 @@ jobs:
           fi
           echo "The image tag ${VERSION} does not exist"
 
+      # OCI ラベルのライセンスは、GitHub がリポジトリのライセンスファイルから判定した SPDX 識別子を使い、手で書かない。
+      # 判定の対象は既定ブランチで、タグが main の履歴にあることは preflight が確かめている。
+      # 判定できないと、spdx_id は null、NOASSERTION（判定できないライセンス）、NONE（ライセンスなし）のいずれかになる。
+      # どれも OCI の仕様がこのラベルの値に求める SPDX License Expression ではないためラベルの値にせず、
+      # ラベル自体を付けずに、ライセンスについて何も主張しない。API の呼び出しの失敗は判定できないことと区別し、止める。
+      # 空の値を出力した行は、docker/build-push-action が labels の入力を読むときに捨てる
+      - name: Resolve license
+        id: license
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          spdx_id="$(gh api "repos/${GITHUB_REPOSITORY}" --jq '.license.spdx_id // ""')"
+          if [[ ! "${spdx_id}" =~ ^[A-Za-z0-9.+-]+$ || "${spdx_id}" == "NOASSERTION" || "${spdx_id}" == "NONE" ]]; then
+            echo "::warning::GitHub could not identify the license of ${GITHUB_REPOSITORY} (${spdx_id:-none}), so the image has no org.opencontainers.image.licenses label"
+            echo "label=" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+          echo "label=org.opencontainers.image.licenses=${spdx_id}" >> "${GITHUB_OUTPUT}"
+          echo "License: ${spdx_id}"
+
       # docker/build-push-action は既定で、ビルドの記録（ビルドのログや設定、BuildKit の Provenance をまとめた .dockerbuild ファイル）を
       # Actions Artifact としてアップロードする。調査のための記録で公開には使わず、受け渡す Artifact を release-assets だけにするよう止める。
       # url の Release は後の release ジョブで公開するため、公開されるまでは参照先がない。
@@ -466,7 +487,6 @@ jobs:
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         env:
           DOCKER_BUILD_RECORD_UPLOAD: false
-          LICENSE_SPDX_ID: Apache-2.0
         with:
           context: ${{ runner.temp }}/context
           file: ${{ runner.temp }}/Dockerfile
@@ -479,7 +499,7 @@ jobs:
             org.opencontainers.image.url=${{ github.server_url }}/${{ github.repository }}/releases/tag/${{ env.VERSION }}
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.version=${{ env.VERSION }}
-            org.opencontainers.image.licenses=${{ env.LICENSE_SPDX_ID }}
+            ${{ steps.license.outputs.label }}
 
       # 後続のジョブは、ここで作る digest 付きの参照だけを使い、イメージ名と digest から参照を組み立て直さない
       - name: Output image reference
