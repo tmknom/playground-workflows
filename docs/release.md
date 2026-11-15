@@ -467,7 +467,7 @@ post-verify は、公開済みのアセットに対してこれと同じ引数�
 ## 外部 Action とツールの固定
 
 - **Action**：`uses` はすべて完全なコミット SHA で固定し、行末のコメントにバージョンを書く。更新は Dependabot（`github-actions`）に任せる
-- **GoReleaser と Syft**：GitHub Releases から Linux amd64 のアーカイブを取得し、ワークフローに書いた SHA-256 と照合してから使う。インストール用の Action（`goreleaser/goreleaser-action`、`anchore/sbom-action/download-syft`）は使わない。Action の SHA で固定できるのは Action のコードだけで、Action が実行時に取得するバイト列は固定できないためである。たとえば `goreleaser/goreleaser-action` v7.3.0 は、アーカイブを同じ Release の `checksums.txt` と照合するだけで、`checksums.txt` を取得できなければ警告を出して照合を飛ばし、cosign による署名の検証は runner に cosign があるときしか行わない。Dependabot では更新できないため、バージョンとハッシュは手動で更新し、release.yml と test-release-build.yml を同時に変える
+- **GoReleaser と Syft**：GitHub Releases から Linux amd64 のアーカイブを取得し、ワークフローに書いた SHA-256 と照合してから使う。インストール用の Action（`goreleaser/goreleaser-action`、`anchore/sbom-action/download-syft`）は使わない。Action の SHA で固定できるのは Action のコードだけで、Action が実行時に取得するバイト列は固定できないためである。たとえば `goreleaser/goreleaser-action` v7.3.0 は、アーカイブを同じ Release の `checksums.txt` と照合するだけで、`checksums.txt` を取得できなければ警告を出して照合を飛ばし、cosign による署名の検証は runner に cosign があるときしか行わない。Dependabot では更新できないため、バージョンとハッシュは手動で更新する
 - **Go**：`go.mod` の `go` 行にパッチバージョンまで書いて固定する（[ビルドの設定](#ビルドの設定)）
 - **ベースイメージ**：Image Index の digest で固定し、Dependabot で更新する（[コンテナイメージ](#コンテナイメージ)）
 
