@@ -44,7 +44,8 @@ builds:
       - -s -w -X main.version={{ .Version }}
     mod_timestamp: "{{ .CommitTimestamp }}"
 
-# 利用者がダウンロードしてすぐに実行できるよう、アーカイブにせずバイナリをそのまま配布する。
+# 利用者がダウンロードしたバイナリを展開せずに実行できるよう、アーカイブにせずそのまま配布する。
+# HTTP でダウンロードしたファイルには実行権限が付かないため、Linux と macOS では利用者が chmod +x を実行する。
 # binary 形式では、バイナリは dist/ 直下にコピーされず、ビルド先のパスのまま name_template の名前（Windows では .exe 付き）を与えられる。
 # そのため release.yml の build ジョブは、dist/artifacts.json から名前とパスの対応を読んでバイナリを集める
 archives:
