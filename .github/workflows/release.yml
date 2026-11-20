@@ -1,4 +1,4 @@
-name: Release Go CLI
+name: Release
 on:
   push:
     tags:
@@ -163,7 +163,7 @@ jobs:
 
       # GoReleaser と Syft は、アーカイブの SHA-256 で固定してからインストールする。
       # インストール用の Action は、実行時に取得するバイナリをワークフロー側で固定できないため使わない。
-      # 更新するときの署名の確認手順は、docs/release.md の「外部 Action とツールの固定」にある
+      # 更新するときの署名の確認手順は、docs/contributing/release.md の「外部 Action とツールの固定」にある
       - name: Set up GoReleaser
         env:
           GORELEASER_VERSION: 2.20.2

@@ -9,3 +9,12 @@ docs: ## Generate documentation for README
 
 ACTDOCS ?= $(SECURE_DOCKER_RUN) ghcr.io/tmknom/actdocs:latest inject --sort
 ACTION_DIR ?= ./.github/actions
+
+# Targets: Release
+.PHONY: release
+release: ## choose the bump level interactively and push the next release tag
+	@scripts/release/tag.sh
+
+.PHONY: test/scripts
+test/scripts: ## run tests of shell scripts
+	scripts/release/tag_test.sh
