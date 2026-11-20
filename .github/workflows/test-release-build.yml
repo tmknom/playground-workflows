@@ -1,7 +1,7 @@
 # Go CLI のリリース用ビルドを、プルリクエストの段階でテストするワークフロー。
 #
 # release.yml の build ジョブと同じビルドと確認を、公開せずにスナップショットとして実行する。
-# GoReleaser の設定、GoReleaser と Syft の固定、Go のクロスコンパイル、配布アーカイブと SBOM の中身を、マージ前に確かめる。
+# GoReleaser の設定、GoReleaser と Syft の固定、Go のクロスコンパイル、配布するバイナリと SBOM を、マージ前に確かめる。
 #
 # このワークフローが要るのは、リリース用ビルドを試す場所がほかにないためである。
 #   - release.yml は main 上のタグでしか先へ進まないため、プルリクエストのブランチでは試せない
@@ -10,7 +10,7 @@
 #
 # build ジョブの処理を複製しているため、次の値と確認は release.yml の build ジョブと同じにし、変えるときは両方を変える。
 #   - GoReleaser と Syft のバージョンとハッシュ
-#   - 配布アーカイブと SBOM の確認（Verify archives）
+#   - 配布するバイナリと SBOM の収集と確認（Collect assets と Verify assets）
 name: Test Release Build
 on:
   pull_request:
@@ -98,84 +98,84 @@ jobs:
           goreleaser check
           goreleaser release --snapshot --clean
 
-      - name: Verify archives
-        working-directory: dist
+      # release.yml の build ジョブの Collect assets と同じ方法で、配布名のファイルを集める
+      - name: Collect assets
         run: |
           set -euo pipefail
-          version="$(jq -r .version metadata.json)"
-          echo "version: ${version}"
+          assets="${RUNNER_TEMP}/release-assets"
+          mkdir "${assets}"
+          cp dist/SHA256SUMS "${assets}/"
+          for name in $(awk '{print $2}' dist/SHA256SUMS); do
+            path="$(jq -r --arg name "${name}" \
+              '[.[] | select(.name == $name) | .path] | unique |
+                if length == 1 then .[0] else error("\(length) paths found for \($name)") end' \
+              dist/artifacts.json)"
+            cp "${path}" "${assets}/${name}"
+          done
+          ls -l "${assets}"
+          jq -r .version dist/metadata.json > "${RUNNER_TEMP}/version"
 
-          # アーカイブと SBOM の過不足と、SHA256SUMS に想定外のファイルが混ざっていないことを確かめる
-          expected="$(printf "${APP_NAME}_${version}_%s\n" \
-            darwin_amd64.tar.gz darwin_arm64.tar.gz \
-            linux_amd64.tar.gz linux_arm64.tar.gz \
-            windows_amd64.zip windows_arm64.zip | sort)"
-          expected_sboms="$(sed 's/$/.sbom.json/' <<< "${expected}")"
-          expected_listed="$(printf '%s\n' ${expected} ${expected_sboms} | sort)"
-          archives="$(find . -maxdepth 1 -type f \( -name '*.tar.gz' -o -name '*.zip' \) -printf '%f\n' | sort)"
-          sboms="$(find . -maxdepth 1 -type f -name '*.sbom.json' -printf '%f\n' | sort)"
+      # release.yml の build ジョブの Verify assets と同じ確認で、リリース前に PR で誤りを検出する。
+      # バージョンはタグではなく、GoReleaser が決めたスナップショットのバージョンを使う
+      - name: Verify assets
+        working-directory: ${{ runner.temp }}/release-assets
+        env:
+          GOTOOLCHAIN: local
+        run: |
+          set -euo pipefail
+          version_number="$(cat "${RUNNER_TEMP}/version")"
+          echo "version: ${version_number}"
+          prefix="${APP_NAME}_${version_number}_"
+          binaries="$(printf "${prefix}%s\n" \
+            darwin_amd64 darwin_arm64 \
+            linux_amd64 linux_arm64 \
+            windows_amd64.exe windows_arm64.exe | sort)"
+          sboms="$(sed 's/$/.sbom.json/' <<< "${binaries}")"
+          expected="$(printf '%s\n' ${binaries} ${sboms} SHA256SUMS | sort)"
+          expected_listed="$(printf '%s\n' ${binaries} ${sboms} | sort)"
+          files="$(find . -type f -printf '%P\n' | sort)"
           listed="$(awk '{print $2}' SHA256SUMS | sort)"
-          if [[ "${archives}" != "${expected}" ]]; then
-            echo "::error::Archives in dist/ do not match the expected six archives"
-            diff <(echo "${expected}") <(echo "${archives}") || true
-            exit 1
-          fi
-          if [[ "${sboms}" != "${expected_sboms}" ]]; then
-            echo "::error::SBOMs in dist/ do not match the expected six SBOMs"
-            diff <(echo "${expected_sboms}") <(echo "${sboms}") || true
-            exit 1
-          fi
           if [[ "${listed}" != "${expected_listed}" ]]; then
-            echo "::error::SHA256SUMS does not list exactly the six archives and six SBOMs"
+            echo "::error::SHA256SUMS does not list exactly the six binaries and six SBOMs"
             diff <(echo "${expected_listed}") <(echo "${listed}") || true
             exit 1
           fi
-          sha256sum -c SHA256SUMS
-
-          # 各アーカイブの直下に、バイナリと LICENSE だけがあることと、tar.gz のバイナリに実行権限があることを確かめる。
-          # release.yml の build ジョブと同じ確認で、リリース前に PR で誤りを検出する
-          for archive in ${expected}; do
-            if [[ "${archive}" == *.zip ]]; then
-              entries="$(unzip -Z1 "${archive}" | sort)"
-              want="$(printf '%s\n' LICENSE "${APP_NAME}.exe")"
-            else
-              entries="$(tar -tzf "${archive}" | sort)"
-              want="$(printf '%s\n' LICENSE "${APP_NAME}")"
-            fi
-            if [[ "${entries}" != "${want}" ]]; then
-              echo "::error::Unexpected entries in ${archive}"
-              echo "${entries}"
-              exit 1
-            fi
-            if [[ "${archive}" == *.tar.gz ]]; then
-              mode="$(tar -tvzf "${archive}" "${APP_NAME}" | awk '{print $1}')"
-              if [[ "${mode}" != -rwx* ]]; then
-                echo "::error::${APP_NAME} in ${archive} is not executable: ${mode}"
-                exit 1
-              fi
-            fi
-          done
-
-          # 各 SBOM が SPDX の JSON として読め、対象のアーカイブの名前と SHA-256 を記録していることを確かめる。
-          # release.yml の build ジョブと同じ確認で、SBOM の中身の正確さまでは確かめない
-          for archive in ${expected}; do
-            digest="$(sha256sum "${archive}" | awk '{print $1}')"
-            if ! jq -e --arg name "${archive}" --arg digest "${digest}" \
-              '(.spdxVersion | startswith("SPDX-")) and .name == $name and
-                any(.packages[]; .name == $name and any(.checksums[]?; .algorithm == "SHA256" and .checksumValue == $digest))' \
-              "${archive}.sbom.json" > /dev/null; then
-              echo "::error::${archive}.sbom.json does not describe ${archive}"
-              exit 1
-            fi
-          done
-
-          # runner と同じ OS / CPU のバイナリを実行し、埋め込んだバージョンを確かめる
-          extract="${RUNNER_TEMP}/linux_amd64"
-          mkdir -p "${extract}"
-          tar -xzf "${APP_NAME}_${version}_linux_amd64.tar.gz" -C "${extract}"
-          actual="$("${extract}/${APP_NAME}" --version)"
-          if [[ "${actual}" != "${version}" ]]; then
-            echo "::error::--version printed ${actual}, expected ${version}"
+          if [[ "${files}" != "${expected}" ]]; then
+            echo "::error::The collected files do not match the six binaries, six SBOMs, and SHA256SUMS"
+            diff <(echo "${expected}") <(echo "${files}") || true
             exit 1
           fi
+
+          for file in ${binaries}; do
+            target="${file#"${prefix}"}"
+            target="${target%.exe}"
+            settings="$(go version -m "${file}" | awk '$1 == "build" {print $2}')"
+            for want in "GOOS=${target%_*}" "GOARCH=${target#*_}" CGO_ENABLED=0; do
+              if ! grep -qx "${want}" <<< "${settings}"; then
+                echo "::error::${file} was not built with ${want}"
+                echo "${settings}"
+                exit 1
+              fi
+            done
+          done
+
+          for file in ${binaries}; do
+            digest="$(sha256sum "${file}" | awk '{print $1}')"
+            if ! jq -e --arg name "${file}" --arg digest "${digest}" \
+              '(.spdxVersion | startswith("SPDX-")) and .name == $name and
+                any(.packages[]; .name == $name and any(.checksums[]?; .algorithm == "SHA256" and .checksumValue == $digest))' \
+              "${file}.sbom.json" > /dev/null; then
+              echo "::error::${file}.sbom.json does not describe ${file}"
+              exit 1
+            fi
+          done
+
+          actual="$("./${APP_NAME}_${version_number}_linux_amd64" --version)"
+          if [[ "${actual}" != "${version_number}" ]]; then
+            echo "::error::--version printed ${actual}, but ${version_number} is expected"
+            exit 1
+          fi
+          echo "linux_amd64 --version: ${actual}"
+
+          sha256sum -c SHA256SUMS
           echo "All checks passed"
