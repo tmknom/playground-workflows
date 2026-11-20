@@ -44,9 +44,9 @@ making it easier to manage changes and understand their impacts.
 The `playground-workflows` CLI is released by the `.github/workflows/release.yml` workflow.
 Each release publishes the following assets on [GitHub Releases][releases]:
 
-- `playground-workflows_<version>_<os>_<arch>.tar.gz` (`<os>` is `linux` or `darwin`) and `playground-workflows_<version>_windows_<arch>.zip`. `<arch>` is `amd64` or `arm64`
-- `<archive>.sbom.json`: the SBOM of each archive in SPDX JSON, where `<archive>` is the archive file name
-- `SHA256SUMS`: the SHA-256 checksums of the archives and the SBOMs
+- `playground-workflows_<version>_<os>_<arch>` (`<os>` is `linux` or `darwin`) and `playground-workflows_<version>_windows_<arch>.exe`: the executable binaries, not archived. `<arch>` is `amd64` or `arm64`
+- `<binary>.sbom.json`: the SBOM of each binary in SPDX JSON, where `<binary>` is the binary file name
+- `SHA256SUMS`: the SHA-256 checksums of the binaries and the SBOMs
 - `container-image.txt`: the digest-pinned reference to the container image `ghcr.io/tmknom/playground-workflows`
 
 `<version>` is the tag without the leading `v`.
@@ -58,14 +58,24 @@ The examples below use `vX.Y.Z` and `X.Y.Z`; replace them with the version you i
 
 ```bash
 gh release download vX.Y.Z --repo tmknom/playground-workflows \
-  --pattern 'playground-workflows_X.Y.Z_linux_amd64.tar.gz' \
+  --pattern 'playground-workflows_X.Y.Z_linux_amd64' \
   --pattern SHA256SUMS \
   --pattern container-image.txt
 ```
 
-### Verify the provenance of an archive
+A downloaded file does not keep the executable permission.
+On Linux and macOS, make the binary executable after verifying it as described below:
 
-The archives and the container image carry [Artifact Attestations](https://docs.github.com/en/actions/concepts/security/artifact-attestations).
+```bash
+chmod +x playground-workflows_X.Y.Z_linux_amd64
+./playground-workflows_X.Y.Z_linux_amd64 --version
+```
+
+On Windows, run `playground-workflows_X.Y.Z_windows_amd64.exe` as it is.
+
+### Verify the provenance of a binary
+
+The binaries and the container image carry [Artifact Attestations](https://docs.github.com/en/actions/concepts/security/artifact-attestations).
 An attestation is only meaningful when you check it against values you expect, so verify it with the following expected values:
 
 | Expected value | Value |
@@ -76,7 +86,7 @@ An attestation is only meaningful when you check it against values you expect, s
 | Runner | GitHub-hosted runners (`--deny-self-hosted-runners`) |
 
 ```bash
-gh attestation verify playground-workflows_X.Y.Z_linux_amd64.tar.gz \
+gh attestation verify playground-workflows_X.Y.Z_linux_amd64 \
   --repo tmknom/playground-workflows \
   --signer-workflow tmknom/playground-workflows/.github/workflows/release.yml \
   --source-ref refs/tags/vX.Y.Z \
@@ -85,7 +95,7 @@ gh attestation verify playground-workflows_X.Y.Z_linux_amd64.tar.gz \
 
 The command requires the GitHub CLI to be authenticated, because it fetches the attestations from the GitHub API.
 If you pass a different `--source-ref`, the verification fails.
-The SBOMs carry attestations as well; verify one with the same command, replacing the file name with `<archive>.sbom.json`.
+The SBOMs carry attestations as well; verify one with the same command, replacing the file name with `<binary>.sbom.json`.
 
 ### Verify the checksum
 
@@ -94,15 +104,15 @@ sha256sum --ignore-missing -c SHA256SUMS
 ```
 
 On macOS, use `shasum -a 256 --ignore-missing -c SHA256SUMS`.
-On Windows, compare the output of `Get-FileHash -Algorithm SHA256 <archive>` with the line for the archive in `SHA256SUMS`.
+On Windows, compare the output of `Get-FileHash -Algorithm SHA256 <binary>` with the line for the binary in `SHA256SUMS`.
 
-A checksum match alone does not detect an archive replaced together with `SHA256SUMS`.
+A checksum match alone does not detect a binary replaced together with `SHA256SUMS`.
 Use it together with the provenance verification above.
 
 ### Verify the container image
 
 Identify the image by the digest-pinned reference in `container-image.txt`, not by the `vX.Y.Z` tag, which can be moved.
-Then verify the provenance with the same expected values as the archives:
+Then verify the provenance with the same expected values as the binaries:
 
 ```bash
 gh attestation verify "oci://$(cat container-image.txt)" \
@@ -125,8 +135,8 @@ Verifying the digest of a platform-specific manifest (`linux/amd64` or `linux/ar
 ### What is not guaranteed
 
 - `SHA256SUMS` and `container-image.txt` are not signed. Rely on the provenance verification, not on these files alone
-- `gh attestation verify` looks up attestations by the digest of the file, not by its name. An archive signed for another platform passes the verification even under a different name
-- The verification pins the tag name, not the commit. If a version was built more than once (for example, deleted and released again), archives and images from the earlier build also pass
+- `gh attestation verify` looks up attestations by the digest of the file, not by its name. A binary signed for another platform passes the verification even under a different name
+- The verification pins the tag name, not the commit. If a version was built more than once (for example, deleted and released again), binaries and images from the earlier build also pass
 - The verification trusts everyone who can push to `main` and push tags, because a tag push runs the workflow file at the tagged commit
 - Release assets and tags are not protected against modification after publication
 - The attestation of an SBOM proves where the SBOM was generated, not that its contents are complete or accurate
