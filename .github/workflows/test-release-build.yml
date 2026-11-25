@@ -53,7 +53,7 @@ jobs:
           fetch-depth: 0
 
       - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version-file: go.mod
           cache: false
@@ -105,7 +105,15 @@ jobs:
           assets="${RUNNER_TEMP}/release-assets"
           mkdir "${assets}"
           cp dist/SHA256SUMS "${assets}/"
-          for name in $(awk '{print $2}' dist/SHA256SUMS); do
+          # awk の失敗を set -e で止めるため、コマンド置換で受けてから配列にする。
+          # 空の入力でも空文字列の要素が1つできるため、件数を確かめてからループする
+          listed="$(awk '{print $2}' dist/SHA256SUMS)"
+          mapfile -t names <<< "${listed}"
+          if [[ "${#names[@]}" -ne 12 ]]; then
+            echo "::error::SHA256SUMS lists ${#names[@]} files, but 12 are expected"
+            exit 1
+          fi
+          for name in "${names[@]}"; do
             path="$(jq -r --arg name "${name}" \
               '[.[] | select(.name == $name) | .path] | unique |
                 if length == 1 then .[0] else error("\(length) paths found for \($name)") end' \
@@ -125,12 +133,13 @@ jobs:
           version_number="$(jq -r .version "${GITHUB_WORKSPACE}/dist/metadata.json")"
           echo "version: ${version_number}"
           prefix="${APP_NAME}_${version_number}_"
-          binaries="$(printf "${prefix}%s\n" \
-            darwin_amd64 darwin_arm64 \
-            linux_amd64 linux_arm64 \
-            windows_amd64.exe windows_arm64.exe | sort)"
-          sboms="$(sed 's/$/.sbom.json/' <<< "${binaries}")"
-          expected_listed="$(printf '%s\n' ${binaries} ${sboms} | sort)"
+          binaries=()
+          sboms=()
+          for target in darwin_amd64 darwin_arm64 linux_amd64 linux_arm64 windows_amd64.exe windows_arm64.exe; do
+            binaries+=("${prefix}${target}")
+            sboms+=("${prefix}${target}.sbom.json")
+          done
+          expected_listed="$(printf '%s\n' "${binaries[@]}" "${sboms[@]}" | sort)"
           listed="$(awk '{print $2}' SHA256SUMS | sort)"
           if [[ "${listed}" != "${expected_listed}" ]]; then
             echo "::error::SHA256SUMS does not list exactly the six binaries and six SBOMs"
@@ -138,17 +147,21 @@ jobs:
             exit 1
           fi
 
-          for file in ${binaries}; do
+          for file in "${binaries[@]}"; do
             target="${file#"${prefix}"}"
             target="${target%.exe}"
             arch="${target#*_}"
             case "${arch}" in
               amd64) level=GOAMD64=v1 ;;
               arm64) level=GOARM64=v8.0 ;;
+              *)
+                echo "::error::No CPU level is defined for ${arch} of ${file}"
+                exit 1
+                ;;
             esac
             settings="$(go version -m "${file}" | awk '$1 == "build" {print $2}')"
             for want in "GOOS=${target%_*}" "GOARCH=${arch}" CGO_ENABLED=0 "${level}"; do
-              if ! grep -qx "${want}" <<< "${settings}"; then
+              if ! grep -qxF "${want}" <<< "${settings}"; then
                 echo "::error::${file} was not built with ${want}"
                 echo "${settings}"
                 exit 1
@@ -156,7 +169,7 @@ jobs:
             done
           done
 
-          for file in ${binaries}; do
+          for file in "${binaries[@]}"; do
             digest="$(sha256sum "${file}" | awk '{print $1}')"
             if ! jq -e --arg name "${file}" --arg digest "${digest}" \
               '(.spdxVersion | startswith("SPDX-")) and .name == $name and
@@ -174,7 +187,7 @@ jobs:
           fi
           echo "linux_amd64 --version: ${actual}"
 
-          expected="$(printf '%s\n' ${expected_listed} SHA256SUMS | sort)"
+          expected="$(printf '%s\n' "${binaries[@]}" "${sboms[@]}" SHA256SUMS | sort)"
           files="$(find . -type f -printf '%P\n' | sort)"
           if [[ "${files}" != "${expected}" ]]; then
             echo "::error::The collected files do not match the six binaries, six SBOMs, and SHA256SUMS"
